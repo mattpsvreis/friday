@@ -63,3 +63,47 @@ a {
   backdrop-filter: blur(12px) saturate(1.1);
   -webkit-backdrop-filter: blur(12px) saturate(1.1);
 }
+
+/* Hide native scrollbars inside ScrollArea (Windows ignores webkit thumb CSS). */
+.friday-scroll-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.friday-scroll-hide::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Page scrollbar — best-effort theming where the browser allows it */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--neon-green) 42%, transparent)
+    transparent;
+}
+
+html::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--neon-green) 38%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--neon-green) 72%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+html::-webkit-scrollbar-corner {
+  background: transparent;
+}

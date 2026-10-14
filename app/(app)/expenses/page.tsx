@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { CategoryPill } from "@/components/category-pill";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
+import { ScrollArea } from "@/components/scroll-area";
 import { SortableTh } from "@/components/sortable-th";
 import { formatBrl, parseBrlInput } from "@/lib/money";
 import {
@@ -688,7 +689,10 @@ export default function ExpensesPage() {
           {purchaseRows.length === 0 ? (
             <p className="mb-8 text-muted">No card purchases yet.</p>
           ) : (
-            <div className={`${TABLE_WRAP_CLASS} mb-10`}>
+            <ScrollArea
+              orientation="horizontal"
+              className={`${TABLE_WRAP_CLASS} mb-10`}
+            >
               <table className={TABLE_CLASS}>
                 <thead>
                   <tr>
@@ -803,7 +807,7 @@ export default function ExpensesPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </ScrollArea>
           )}
 
           <h2 className="mb-3 text-sm uppercase tracking-wide text-muted">
@@ -812,7 +816,7 @@ export default function ExpensesPage() {
           {entries.length === 0 ? (
             <p className="text-muted">No cash expenses recorded.</p>
           ) : (
-            <div className={TABLE_WRAP_CLASS}>
+            <ScrollArea orientation="horizontal" className={TABLE_WRAP_CLASS}>
               <table className={TABLE_CLASS}>
                 <thead>
                   <tr>
@@ -913,7 +917,7 @@ export default function ExpensesPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </ScrollArea>
           )}
         </>
       )}

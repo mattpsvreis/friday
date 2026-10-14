@@ -5,6 +5,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { CategoryPill } from "@/components/category-pill";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
+import { ScrollArea } from "@/components/scroll-area";
 import { SortableTh } from "@/components/sortable-th";
 import { StatusPill } from "@/components/status-pill";
 import { formatBrl, parseBrlInput } from "@/lib/money";
@@ -458,34 +459,36 @@ export default function RecurringPage() {
                   </div>
                 </div>
               </div>
-              <ul className="max-h-52 flex-1 space-y-2 overflow-y-auto text-sm">
-                {expenseByCategory.map((entry) => {
-                  const pct =
-                    expenseTotalCents > 0
-                      ? Math.round((entry.cents / expenseTotalCents) * 100)
-                      : 0;
-                  return (
-                    <li
-                      key={entry.name}
-                      className="flex items-center justify-between gap-3"
-                    >
-                      <span className="flex items-center gap-2 text-muted">
-                        <span
-                          className="size-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: entry.color }}
-                        />
-                        {entry.name}
-                      </span>
-                      <span className="tabular-nums">
-                        <span className="text-neon-orange">
-                          {formatBrl(entry.cents)}
+              <ScrollArea className="max-h-52 flex-1 text-sm">
+                <ul className="space-y-2 pr-3">
+                  {expenseByCategory.map((entry) => {
+                    const pct =
+                      expenseTotalCents > 0
+                        ? Math.round((entry.cents / expenseTotalCents) * 100)
+                        : 0;
+                    return (
+                      <li
+                        key={entry.name}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <span className="flex items-center gap-2 text-muted">
+                          <span
+                            className="size-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: entry.color }}
+                          />
+                          {entry.name}
                         </span>
-                        <span className="text-muted"> · {pct}%</span>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+                        <span className="tabular-nums">
+                          <span className="text-neon-orange">
+                            {formatBrl(entry.cents)}
+                          </span>
+                          <span className="text-muted"> · {pct}%</span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </ScrollArea>
             </>
           )}
         </div>
@@ -499,7 +502,7 @@ export default function RecurringPage() {
       ) : rules.length === 0 ? (
         <p className="text-muted">No recurring rules.</p>
       ) : (
-        <div className={TABLE_WRAP_CLASS}>
+        <ScrollArea orientation="horizontal" className={TABLE_WRAP_CLASS}>
           <table className={TABLE_CLASS}>
             <thead>
               <tr>
@@ -620,7 +623,7 @@ export default function RecurringPage() {
               })}
             </tbody>
           </table>
-        </div>
+        </ScrollArea>
       )}
 
       <ConfirmDeleteModal

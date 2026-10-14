@@ -289,11 +289,10 @@ function monthMetrics(input: {
     oneTimeCashCents: oneTimeCash,
     recurringCashCents: recurringCash,
     recurringCardCents: recurringCardDue,
-    /**
-     * Card-cycle spend budgeted this month: purchase parcels + one-shot
-     * credit-card ledger rows (excludes card recurring templates).
-     */
-    installmentsCents: purchaseInstallmentsDue + ledgerCardDue,
+    /** One-shot credit-card ledger rows (fatura cycle; not parcels). */
+    ledgerCardCents: ledgerCardDue,
+    /** Purchase parcels due this month (excludes card ledger + card recurrings). */
+    installmentsCents: purchaseInstallmentsDue,
     faturaPaymentsDueCents: faturaPaymentsDue,
     expenseCents,
     byCategory: [...byCategory.values()].sort((a, b) => b.cents - a.cents),
@@ -487,7 +486,9 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     expenseCents: current.expenseCents,
     predicted: {
       totalCents: current.expenseCents,
-      oneTimeCashCents: current.oneTimeCashCents,
+      // Cash ledger + one-shot card ledger (not parcels).
+      oneTimeCashCents:
+        current.oneTimeCashCents + current.ledgerCardCents,
       // All ON templates due this month (cash + card) — card recurrings are
       // not purchase installments.
       recurringCashCents:

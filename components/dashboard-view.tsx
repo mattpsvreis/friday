@@ -27,6 +27,7 @@ import {
   YAxis,
 } from "recharts";
 import { CategoryPill } from "@/components/category-pill";
+import { ScrollArea } from "@/components/scroll-area";
 import { StatusPill } from "@/components/status-pill";
 import { shiftYearMonth } from "@/lib/dates";
 import { formatBrl } from "@/lib/money";
@@ -130,6 +131,20 @@ const CHART_TOOLTIP = {
     formatBrl(Math.round(Number(value) * 100)),
 };
 
+type StackLayer = {
+  id: string;
+  name: string;
+  color: string;
+  value: number;
+};
+
+type StackedMonthRow = {
+  label: string;
+  isViewedMonth: boolean;
+  layers: StackLayer[];
+  [key: string]: string | number | boolean | StackLayer[];
+};
+
 function CategoryStackTooltip({
   active,
   payload,
@@ -141,11 +156,23 @@ function CategoryStackTooltip({
     value?: number | string;
     color?: string;
     dataKey?: string | number;
+    payload?: StackedMonthRow;
   }>;
   label?: string | number;
 }) {
   if (!active || !payload?.length) return null;
-  const rows = payload.filter((entry) => Number(entry.value) > 0);
+  const layers = payload[0]?.payload?.layers;
+  const rows = layers
+    ? [...layers].filter((layer) => layer.value > 0).reverse()
+    : payload
+        .filter((entry) => Number(entry.value) > 0)
+        .sort((a, b) => Number(b.value) - Number(a.value))
+        .map((entry) => ({
+          id: String(entry.dataKey ?? entry.name),
+          name: entry.name ?? "",
+          color: entry.color ?? "#8a8a8a",
+          value: Number(entry.value),
+        }));
   if (rows.length === 0) return null;
 
   return (
@@ -157,12 +184,12 @@ function CategoryStackTooltip({
       <ul className="space-y-1">
         {rows.map((entry) => (
           <li
-            key={String(entry.dataKey ?? entry.name)}
+            key={entry.id}
             className="flex items-baseline justify-between gap-4"
           >
             <span style={{ color: entry.color }}>{entry.name}</span>
             <span className="tabular-nums text-neon-orange">
-              {formatBrl(Math.round(Number(entry.value) * 100))}
+              {formatBrl(Math.round(entry.value * 100))}
             </span>
           </li>
         ))}
@@ -268,14 +295,14 @@ function ExpenseMixPanel({
     {
       key: "oneTime",
       label: "One-timers",
-      hint: "Cash ledger expenses",
+      hint: "Cash + card ledger (card uses close−1)",
       cents: oneTimeCents,
       color: "#ff6b00",
     },
     {
       key: "installments",
       label: "Installments",
-      hint: "Card cycle (parcels + card ledger, close−1)",
+      hint: "Card purchase parcels (close−1)",
       cents: installmentsCents,
       color: "#7dd3fc",
     },
@@ -471,35 +498,65 @@ export function DashboardView() {
   );
 
   const categoryKeys = useMemo(() => {
-    const keys = new Map<string, { name: string; color: string }>();
+    const keys = new Map<string, { name: string; color: string; cents: number }>();
+    const viewedYear = data?.window.year;
+    const viewedMonth = data?.window.month;
     for (const point of data?.series ?? []) {
+      const isViewed =
+        point.year === viewedYear && point.month === viewedMonth;
       for (const slice of point.byCategory) {
         const id = slice.categoryId ?? "__none__";
-        if (!keys.has(id)) {
-          keys.set(id, { name: slice.name, color: slice.color });
+        const existing = keys.get(id);
+        if (!existing) {
+          keys.set(id, {
+            name: slice.name,
+            color: slice.color,
+            cents: isViewed ? slice.cents : 0,
+          });
+        } else if (isViewed) {
+          existing.cents += slice.cents;
         }
       }
     }
-    return [...keys.entries()].map(([id, meta]) => ({ id, ...meta }));
+    return [...keys.entries()]
+      .map(([id, meta]) => ({ id, ...meta }))
+      .sort(
+        (a, b) => b.cents - a.cents || a.name.localeCompare(b.name),
+      );
   }, [data]);
 
-  const stackedChart = useMemo(() => {
+  const stackedChart = useMemo((): StackedMonthRow[] => {
     return (data?.series ?? []).map((point) => {
-      const row: Record<string, string | number | boolean> = {
+      // Ascending amounts → first Bar at bottom, last (highest) on top.
+      const layers = [...point.byCategory]
+        .filter((slice) => slice.cents > 0)
+        .map((slice) => ({
+          id: slice.categoryId ?? "__none__",
+          name: slice.name,
+          color: slice.color,
+          value: slice.cents / 100,
+        }))
+        .sort(
+          (a, b) => a.value - b.value || a.name.localeCompare(b.name),
+        );
+      const row: StackedMonthRow = {
         label: point.label,
         isViewedMonth:
           point.year === data?.window.year &&
           point.month === data?.window.month,
+        layers,
       };
-      for (const key of categoryKeys) {
-        const slice = point.byCategory.find(
-          (s) => (s.categoryId ?? "__none__") === key.id,
-        );
-        row[key.id] = (slice?.cents ?? 0) / 100;
+      for (let i = 0; i < layers.length; i++) {
+        row[`L${i}`] = layers[i].value;
       }
       return row;
     });
-  }, [data, categoryKeys]);
+  }, [data]);
+
+  const stackLayerCount = useMemo(
+    () => Math.max(0, ...stackedChart.map((row) => row.layers.length), 0),
+    [stackedChart],
+  );
 
   function MonthTick({
     x,
@@ -635,9 +692,12 @@ export function DashboardView() {
 
           <div className="grid gap-4 xl:grid-cols-2">
             <Panel title="Income vs Expenses">
-              <div className="relative z-0 h-64 overflow-visible">
+              <div className="relative z-0 h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={incomeExpenseChart}>
+                  <BarChart
+                    data={incomeExpenseChart}
+                    margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                  >
                     <CartesianGrid stroke="color-mix(in srgb, #39ff14 12%, transparent)" />
                     <XAxis
                       dataKey="label"
@@ -652,7 +712,12 @@ export function DashboardView() {
                       tickFormatter={(v: number) => brlAxis(v)}
                     />
                     <Tooltip {...CHART_TOOLTIP} />
-                    <Legend wrapperStyle={{ position: "relative", zIndex: 0 }} />
+                    <Legend
+                      verticalAlign="top"
+                      align="center"
+                      height={28}
+                      wrapperStyle={{ zIndex: 0 }}
+                    />
                     <Bar dataKey="income" name="Income" fill="#39ff14" />
                     <Bar dataKey="expense" name="Expense" fill="#ff6b00" />
                   </BarChart>
@@ -692,82 +757,110 @@ export function DashboardView() {
                       </div>
                     </div>
                   </div>
-                  <ul className="max-h-48 flex-1 space-y-2 overflow-y-auto text-sm">
-                    {donutData.map((entry) => {
-                      const pct =
-                        data.expenseCents > 0
-                          ? Math.round(
-                              (entry.cents / data.expenseCents) * 100,
-                            )
-                          : 0;
-                      return (
-                        <li
-                          key={entry.name}
-                          className="flex items-center justify-between gap-3"
-                        >
-                          <span className="flex items-center gap-2 text-muted">
-                            <span
-                              className="size-2.5 shrink-0 rounded-full"
-                              style={{ backgroundColor: entry.color }}
-                            />
-                            {entry.name}
-                          </span>
-                          <span className="tabular-nums">
-                            <span className="text-neon-orange">
-                              {formatBrl(entry.cents)}
+                  <ScrollArea className="max-h-48 flex-1 text-sm">
+                    <ul className="space-y-2 pr-3">
+                      {donutData.map((entry) => {
+                        const pct =
+                          data.expenseCents > 0
+                            ? Math.round(
+                                (entry.cents / data.expenseCents) * 100,
+                              )
+                            : 0;
+                        return (
+                          <li
+                            key={entry.name}
+                            className="flex items-center justify-between gap-3"
+                          >
+                            <span className="flex items-center gap-2 text-muted">
+                              <span
+                                className="size-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: entry.color }}
+                              />
+                              {entry.name}
                             </span>
-                            <span className="text-muted"> · {pct}%</span>
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                            <span className="tabular-nums">
+                              <span className="text-neon-orange">
+                                {formatBrl(entry.cents)}
+                              </span>
+                              <span className="text-muted"> · {pct}%</span>
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </ScrollArea>
                 </div>
               )}
             </Panel>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            <Panel title="Expenses by Category (−3 … +3 months)">
+            <Panel title="Expenses by Category">
               <div className="relative z-0 h-72 overflow-visible">
                 {categoryKeys.length === 0 ? (
                   <p className="text-sm text-muted">
                     No category spend in this window.
                   </p>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={stackedChart}>
-                      <CartesianGrid stroke="color-mix(in srgb, #39ff14 12%, transparent)" />
-                      <XAxis
-                        dataKey="label"
-                        stroke="#8a8a8a"
-                        tick={<MonthTick />}
-                        interval={0}
-                      />
-                      <YAxis
-                        stroke="#8a8a8a"
-                        fontSize={11}
-                        width={72}
-                        tickFormatter={(v: number) => brlAxis(v)}
-                      />
-                      <Tooltip
-                        wrapperStyle={{ zIndex: 40, outline: "none" }}
-                        content={<CategoryStackTooltip />}
-                      />
-                      <Legend
-                        wrapperStyle={{ position: "relative", zIndex: 0 }}
-                      />
+                  <div className="flex h-full flex-col gap-2">
+                    <ul className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-xs">
                       {categoryKeys.map((key) => (
-                        <Bar
+                        <li
                           key={key.id}
-                          dataKey={key.id}
-                          name={key.name}
-                          stackId="expense"
-                          fill={key.color}
-                        />
+                          className="flex items-center gap-1.5 text-muted"
+                        >
+                          <span
+                            className="size-2.5 shrink-0"
+                            style={{ backgroundColor: key.color }}
+                          />
+                          {key.name}
+                        </li>
                       ))}
-                    </BarChart>
-                  </ResponsiveContainer>
+                    </ul>
+                    <div className="min-h-0 flex-1">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={stackedChart}
+                          margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid stroke="color-mix(in srgb, #39ff14 12%, transparent)" />
+                          <XAxis
+                            dataKey="label"
+                            stroke="#8a8a8a"
+                            tick={<MonthTick />}
+                            interval={0}
+                          />
+                          <YAxis
+                            stroke="#8a8a8a"
+                            fontSize={11}
+                            width={72}
+                            tickFormatter={(v: number) => brlAxis(v)}
+                          />
+                          <Tooltip
+                            wrapperStyle={{ zIndex: 40, outline: "none" }}
+                            content={<CategoryStackTooltip />}
+                          />
+                          {Array.from({ length: stackLayerCount }, (_, i) => (
+                            <Bar
+                              key={`L${i}`}
+                              dataKey={`L${i}`}
+                              stackId="expense"
+                              isAnimationActive={false}
+                            >
+                              {stackedChart.map((entry) => (
+                                <Cell
+                                  key={`${entry.label}-L${i}`}
+                                  fill={
+                                    entry.layers[i]?.color ?? "transparent"
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          ))}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 )}
               </div>
             </Panel>
@@ -793,7 +886,7 @@ export function DashboardView() {
               {data.recentTransactions.length === 0 ? (
                 <p className="text-sm text-muted">No transactions yet.</p>
               ) : (
-                <div className="overflow-x-auto">
+                <ScrollArea orientation="horizontal">
                   <table className="w-full min-w-[32rem] text-left text-sm">
                     <thead>
                       <tr className="text-xs uppercase tracking-wide text-muted">
@@ -844,7 +937,7 @@ export function DashboardView() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </ScrollArea>
               )}
             </Panel>
 

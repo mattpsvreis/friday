@@ -5,6 +5,7 @@ import { BalancesEditor } from "@/components/balances-editor";
 import { CategoryPill } from "@/components/category-pill";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
+import { ScrollArea } from "@/components/scroll-area";
 import { SortableTh } from "@/components/sortable-th";
 import { formatBrl } from "@/lib/money";
 import { paymentMethodLabel } from "@/lib/payment-methods";
@@ -229,7 +230,7 @@ export default function TransactionsPage() {
       ) : sorted.length === 0 ? (
         <p className="text-muted">No transactions yet.</p>
       ) : (
-        <div className={TABLE_WRAP_CLASS}>
+        <ScrollArea orientation="horizontal" className={TABLE_WRAP_CLASS}>
           <table className={TABLE_CLASS}>
             <thead>
               <tr>
@@ -339,7 +340,7 @@ export default function TransactionsPage() {
               })}
             </tbody>
           </table>
-        </div>
+        </ScrollArea>
       )}
 
       <ConfirmDeleteModal

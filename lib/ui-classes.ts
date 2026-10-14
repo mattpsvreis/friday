@@ -14,7 +14,7 @@ export const BTN_DANGER_CLASS =
 export const GLASS_PANEL_CLASS = "border border-border glass-panel";
 
 export const TABLE_WRAP_CLASS =
-  "w-full overflow-x-auto border border-border glass-panel";
+  "w-full border border-border glass-panel";
 
 export const TABLE_CLASS = "w-full min-w-[40rem] border-collapse text-left text-sm";
 

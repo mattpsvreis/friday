@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { CategoryPill } from "@/components/category-pill";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
+import { ScrollArea } from "@/components/scroll-area";
 import { SortableTh } from "@/components/sortable-th";
 import { formatBrl, parseBrlInput } from "@/lib/money";
 import {
@@ -261,7 +262,7 @@ export default function IncomePage() {
       ) : entries.length === 0 ? (
         <p className="text-muted">No income entries yet.</p>
       ) : (
-        <div className={TABLE_WRAP_CLASS}>
+        <ScrollArea orientation="horizontal" className={TABLE_WRAP_CLASS}>
           <table className={TABLE_CLASS}>
             <thead>
               <tr>
@@ -362,7 +363,7 @@ export default function IncomePage() {
               })}
             </tbody>
           </table>
-        </div>
+        </ScrollArea>
       )}
 
       <ConfirmDeleteModal
