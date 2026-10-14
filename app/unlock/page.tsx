@@ -1,0 +1,134 @@
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  getSessionToken,
+  setSessionToken,
+} from "@/lib/session-client";
+
+export default function UnlockPage() {
+  const router = useRouter();
+  const [mode, setMode] = useState<"loading" | "setup" | "unlock">("loading");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (getSessionToken()) {
+      router.replace("/");
+      return;
+    }
+    fetch("/api/auth/status")
+      .then((r) => r.json())
+      .then((data: { hasPassword?: boolean }) => {
+        setMode(data.hasPassword ? "unlock" : "setup");
+      })
+      .catch(() => setMode("setup"));
+  }, [router]);
+
+  async function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      if (mode === "setup") {
+        if (password.length < 4) {
+          setError("Use at least 4 characters.");
+          return;
+        }
+        if (password !== confirm) {
+          setError("Passwords do not match.");
+          return;
+        }
+        const response = await fetch("/api/auth/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Setup failed");
+        setSessionToken(data.token);
+      } else {
+        const response = await fetch("/api/auth/unlock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Unlock failed");
+        setSessionToken(data.token);
+      }
+      router.replace("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mode === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted">
+        Loading…
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-md space-y-6 border border-border bg-surface p-8"
+      >
+        <div className="space-y-2 text-center">
+          <h1 className="font-[family-name:var(--font-source-serif)] text-4xl text-neon-green [text-shadow:0_0_16px_color-mix(in_srgb,var(--neon-green)_45%,transparent)]">
+            Friday
+          </h1>
+          <p className="text-muted">
+            {mode === "setup"
+              ? "Set a local unlock password."
+              : "Enter your unlock password."}
+          </p>
+        </div>
+
+        <label className="block space-y-2">
+          <span className="text-sm text-muted">Password</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-neon-green"
+            autoComplete={mode === "setup" ? "new-password" : "current-password"}
+            required
+          />
+        </label>
+
+        {mode === "setup" ? (
+          <label className="block space-y-2">
+            <span className="text-sm text-muted">Confirm</span>
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="w-full border border-border bg-background px-3 py-2 text-foreground outline-none focus:border-neon-green"
+              autoComplete="new-password"
+              required
+            />
+          </label>
+        ) : null}
+
+        {error ? <p className="text-sm text-neon-orange">{error}</p> : null}
+
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full border border-neon-orange bg-neon-orange/10 px-4 py-3 text-neon-orange transition hover:bg-neon-orange/20 disabled:opacity-50"
+        >
+          {busy ? "Working…" : mode === "setup" ? "Create lock" : "Unlock"}
+        </button>
+      </form>
+    </div>
+  );
+}

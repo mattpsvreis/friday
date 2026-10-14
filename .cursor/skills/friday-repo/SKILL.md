@@ -55,9 +55,9 @@ Treat `cacheComponents` and `partialPrefetching` as defined by the installed doc
 
 ## Where code goes
 
-- `app/layout.tsx` — root layout. Props type is `LayoutProps<"/">`. Fonts are Geist via `next/font/google`.
-- `app/page.tsx` — home route. Still the create-next-app starter.
-- `app/globals.css` — Tailwind entry and shared color tokens.
+- `app/layout.tsx` — root layout. Props type is `LayoutProps<"/">`. Fonts are Comfortaa + Source Serif 4 via `next/font/google`.
+- `app/(app)/page.tsx` — dashboard (auth-gated shell).
+- `app/globals.css` — Tailwind entry and neon dark theme tokens.
 - `next.config.ts` — the only Next config.
 - `tsconfig.json` — compiler options and `@/*`.
 - `eslint.config.mjs` — flat config from `eslint-config-next` (core web vitals and TypeScript).
@@ -82,7 +82,7 @@ That allows the `unrs-resolver` dependency to run its build script. Leave the en
 
 ## Product scope
 
-The home page is still the starter. Local Postgres, one-click boot, and the personal-finance direction are specified in the `friday-runtime` skill. Do not infer a finance data model from this starter.
+Finance domain and UI rules are in `friday-architecture`. Local Postgres and one-click boot are in `friday-runtime`.
 
 ## Further detail
 

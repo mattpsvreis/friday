@@ -11,11 +11,9 @@ description: >-
 
 # Friday local runtime
 
-Friday will become a personal finance manager. It needs extensive detail, and it must stay malleable as this user actually uses it. The domain model and application architecture are not decided.
+Friday is a personal finance manager. Domain and UI rules live in the `friday-architecture` skill. Do not invent parallel boot paths or host-installed Postgres.
 
-Do not add schemas, migrations, ORMs, account types, ledgers, money-domain types, feature routes, or dashboards until the user designs them. Do not split the repo into services or packages.
-
-What is decided is how the machine starts.
+What this skill covers is how the machine starts.
 
 ## One boot path
 
@@ -28,7 +26,7 @@ Everyday local startup is one command. It brings up every component that exists,
 
 The user works on Windows. `scripts/dev.bat` is the one-click button there (run it from the repo root, or double-click it). `scripts/dev.sh` runs the same sequence.
 
-Neither file exists yet. Create both when the user asks for startup. Keep them equivalent. When another component is added later, extend both files. Do not add a second boot path.
+Both boot scripts exist at `scripts/dev.bat` and `scripts/dev.sh`. Keep them equivalent. When another component is added later, extend both files. Do not add a second boot path.
 
 Development Postgres runs only through Docker Compose. Do not use a host-installed Postgres, a cloud database, or `npm run dev`.
 
@@ -55,7 +53,7 @@ Required environment for the database container, supplied by Compose from a giti
 | `POSTGRES_PASSWORD` | Role password |
 | `POSTGRES_DB` | Database name |
 
-The Next.js process does not read those three names. When the app is later wired to the database, it reads a single `DATABASE_URL` that points at `127.0.0.1:5432` with the same user, password, and database. Do not hard-code a connection string in source. Do not add a database client until the user asks.
+The Next.js process does not read those three names. It reads a single `DATABASE_URL` that points at `127.0.0.1:5432` with the same user, password, and database. Do not hard-code a connection string in source.
 
 `.env*` is gitignored. Boot scripts may pass an env file to Compose. They must not print secret values. A committed example file is allowed only when the user asks for one, and it must contain placeholders.
 

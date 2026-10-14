@@ -51,9 +51,10 @@ Notes:
 POSTGRES_USER=
 POSTGRES_PASSWORD=
 POSTGRES_DB=
+DATABASE_URL=postgresql://USER:PASSWORD@127.0.0.1:5432/DB
 ```
 
-`DATABASE_URL` is for the Next.js app later, not for the Postgres image. Omit it until the app is connected. Never echo `.env` from the boot scripts.
+`DATABASE_URL` is for the Next.js app (Drizzle). It must use the same user, password, and database as the three `POSTGRES_*` keys. Never echo `.env` from the boot scripts.
 
 ## scripts/dev.sh
 
@@ -125,6 +126,6 @@ echo Next.js stopped. Postgres is still running. Stop it with: docker compose st
 
 App-only work that does not need Postgres can still use `pnpm dev`. Once the app depends on the database, prefer the boot script so the database is not forgotten.
 
-## Out of scope until the user designs it
+## Related skills
 
-Personal-finance behavior, tables, migrations, seed transactions, authentication, and how malleable user-defined categories or accounts should work. Record those decisions in a new skill or an added section of this reference after that discussion. Do not preview them here.
+Domain model, dashboard math, import, auth, and UI live in `friday-architecture`.
