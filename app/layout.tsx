@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Comfortaa, Source_Serif_4 } from "next/font/google";
+import { CurrencyBackground } from "@/components/currency-background";
 import "./globals.css";
 
 const comfortaa = Comfortaa({
@@ -33,7 +34,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${comfortaa.variable} ${sourceSerif.variable} h-full antialiased`}
     >
-      <body className="min-h-full font-sans">{children}</body>
+      <body className="min-h-full font-sans">
+        <CurrencyBackground />
+        <div className="relative z-10 min-h-full">{children}</div>
+      </body>
     </html>
   );
 }

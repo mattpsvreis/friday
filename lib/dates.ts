@@ -88,6 +88,19 @@ export function paymentDueForCycle(
   );
 }
 
+/**
+ * Month where a fatura payment counts as an expense for paycheck planning.
+ * Due dates are paid at the start of that month, so they are budgeted in the
+ * prior calendar month (Nov due → October expense math).
+ */
+export function faturaExpenseAttributionDate(paymentDue: Date): Date {
+  return dateWithDay(
+    paymentDue.getUTCFullYear(),
+    paymentDue.getUTCMonth() - 1,
+    paymentDue.getUTCDate(),
+  );
+}
+
 export function inInclusiveRange(date: Date, start: Date, end: Date): boolean {
   const t = date.getTime();
   return t >= start.getTime() && t <= end.getTime();

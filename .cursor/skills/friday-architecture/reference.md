@@ -21,9 +21,9 @@
 ## Dashboard splits / KPIs
 
 - **Income** — confirmed ledger income in the month + enabled recurring income
-- **Expense** — one-time cash + recurring cash + card bill due (installments + card recurrings)
+- **Expense** — one-time cash + recurring cash + fatura dues attributed to due-month − 1 (installment parcels + card recurrings)
 - **Saved / Spendable** — balance snapshots
-- **Expected End** — spendable + incomes − one-time cash − recurring cash − fatura dues
+- **Expected End** — spendable + incomes − one-time cash − recurring cash − fatura dues (same −1 attribution)
 - Category donut / stacked bars attribute ledger, recurrings, and installment parcels by `categoryId` (else Uncategorized)
 - Recent transactions: cash ledger + card purchases only (not recurring templates)
 - Auto-generated ledger rows from the old materialization model are purged on dashboard load

@@ -63,7 +63,7 @@ export default function SettingsPage() {
       ) : (
         <form
           onSubmit={onChangePassword}
-          className="max-w-md space-y-3 border border-border p-4"
+          className="max-w-md space-y-3 border border-border glass-panel p-4"
         >
           <h2 className="text-sm uppercase tracking-wide text-muted">
             Password

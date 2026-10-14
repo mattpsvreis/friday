@@ -15,17 +15,17 @@ import {
   cycleCloseDateFor,
   dateWithDay,
   inInclusiveRange,
-  openCycleCloseDate,
   parseIsoDate,
+  faturaExpenseAttributionDate,
   paymentDueForCycle,
   shiftYearMonth,
   toIsoDate,
 } from "@/lib/dates";
+import { computeCardLimitUsages } from "@/lib/card-limits";
 import {
   listAllRules,
   listEnabledRules,
   purgeAutoMaterializedLedger,
-  sumRecurringCardOnOpenFatura,
   sumRecurringCardPaymentsDueInWindow,
   sumRecurringCashExpenses,
   sumRules,
@@ -152,7 +152,11 @@ function monthMetrics(input: {
 
   const recurringCash = sumRecurringCashExpenses(input.enabledRules);
 
-  let installmentPaymentsDue = 0;
+  /**
+   * Confirmed purchase parcels budgeted in this month.
+   * Fatura dues are attributed to due-month − 1 (paycheck planning).
+   */
+  let purchaseInstallmentsDue = 0;
   const byCategory = new Map<string, CategorySlice>();
 
   for (const card of input.cards) {
@@ -165,8 +169,9 @@ function monthMetrics(input: {
         parseIsoDate(row.cycleCloseDate),
         card.paymentDueDay,
       );
-      if (!inInclusiveRange(due, start, end)) continue;
-      installmentPaymentsDue += row.amountCents;
+      const attributed = faturaExpenseAttributionDate(due);
+      if (!inInclusiveRange(attributed, start, end)) continue;
+      purchaseInstallmentsDue += row.amountCents;
       addCategoryCents(
         byCategory,
         purchase.categoryId,
@@ -176,13 +181,14 @@ function monthMetrics(input: {
     }
   }
 
+  /** Card recurring templates whose fatura due falls in this month (not installments). */
   const recurringCardDue = sumRecurringCardPaymentsDueInWindow(
     input.enabledRules as RecurringRuleRow[],
     input.cardsById,
     start,
     end,
   );
-  installmentPaymentsDue += recurringCardDue;
+  const faturaPaymentsDue = purchaseInstallmentsDue + recurringCardDue;
 
   for (const rule of input.enabledRules) {
     if (rule.direction !== "expense") continue;
@@ -192,7 +198,8 @@ function monthMetrics(input: {
         : undefined;
       if (!card) continue;
       let dueInWindow = false;
-      for (const delta of [0, -1] as const) {
+      // −1/0/+1 charge months cover close→due lag after due−1 attribution.
+      for (const delta of [-1, 0, 1] as const) {
         const shifted = shiftYearMonth(input.year, monthIndex, delta);
         const charge = dateWithDay(
           shifted.year,
@@ -201,7 +208,8 @@ function monthMetrics(input: {
         );
         const close = cycleCloseDateFor(charge, card.cycleCloseDay);
         const due = paymentDueForCycle(close, card.paymentDueDay);
-        if (inInclusiveRange(due, start, end)) {
+        const attributed = faturaExpenseAttributionDate(due);
+        if (inInclusiveRange(attributed, start, end)) {
           dueInWindow = true;
           break;
         }
@@ -244,7 +252,7 @@ function monthMetrics(input: {
     );
   }
 
-  const expenseCents = oneTimeCash + recurringCash + installmentPaymentsDue;
+  const expenseCents = oneTimeCash + recurringCash + faturaPaymentsDue;
 
   return {
     start,
@@ -254,8 +262,10 @@ function monthMetrics(input: {
     incomesCents,
     oneTimeCashCents: oneTimeCash,
     recurringCashCents: recurringCash,
-    installmentsCents: installmentPaymentsDue,
-    faturaPaymentsDueCents: installmentPaymentsDue,
+    recurringCardCents: recurringCardDue,
+    /** Purchase installment parcels only — excludes card recurring templates. */
+    installmentsCents: purchaseInstallmentsDue,
+    faturaPaymentsDueCents: faturaPaymentsDue,
     expenseCents,
     byCategory: [...byCategory.values()].sort((a, b) => b.cents - a.cents),
   };
@@ -319,35 +329,12 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     current.recurringCashCents -
     current.faturaPaymentsDueCents;
 
-  const cardStats = cards.map((card) => {
-    const openClose = openCycleCloseDate(asOf, card.cycleCloseDay);
-    const remainingInstallments = confirmedInstallments
-      .filter((row) => {
-        const purchase = confirmedPurchases.find((p) => p.id === row.purchaseId);
-        if (!purchase || purchase.creditCardId !== card.id) return false;
-        const close = parseIsoDate(row.cycleCloseDate);
-        return close.getTime() >= openClose.getTime();
-      })
-      .reduce((sum, row) => sum + row.amountCents, 0);
-
-    const recurringOnLimit = sumRecurringCardOnOpenFatura(
-      enabledRules,
-      card,
-      asOf,
-    );
-
-    const used = remainingInstallments + recurringOnLimit;
-    return {
-      id: card.id,
-      label: card.label,
-      bank: card.bank,
-      last4: card.last4,
-      limitCents: card.limitCents,
-      usedCents: used,
-      availableCents: card.limitCents - used,
-      cycleCloseDay: card.cycleCloseDay,
-      paymentDueDay: card.paymentDueDay,
-    };
+  const cardStats = computeCardLimitUsages({
+    cards,
+    confirmedPurchases,
+    confirmedInstallments,
+    enabledRules,
+    asOf,
   });
 
   const series: MonthSeriesPoint[] = [];
@@ -421,7 +408,7 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
 
   const recentTransactions = [...recentLedger, ...recentPurchases]
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 8)
+    .slice(0, 11)
     .map((row) => {
       const cat = row.categoryId ? categoryById.get(row.categoryId) : undefined;
       const card = row.creditCardId
@@ -436,7 +423,10 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     });
 
   const recurrings = [...allRules]
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort(
+      (a, b) =>
+        b.amountCents - a.amountCents || a.name.localeCompare(b.name),
+    )
     .map((rule) => {
       const cat = rule.categoryId
         ? categoryById.get(rule.categoryId)
@@ -469,7 +459,10 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     predicted: {
       totalCents: current.expenseCents,
       oneTimeCashCents: current.oneTimeCashCents,
-      recurringCashCents: current.recurringCashCents,
+      // All ON templates due this month (cash + card) — card recurrings are
+      // not purchase installments.
+      recurringCashCents:
+        current.recurringCashCents + current.recurringCardCents,
       installmentsCents: current.installmentsCents,
     },
     faturaPaymentsDueCents: current.faturaPaymentsDueCents,

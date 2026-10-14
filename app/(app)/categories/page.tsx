@@ -124,7 +124,7 @@ export default function CategoriesPage() {
       />
       <form
         onSubmit={onSubmit}
-        className="mb-8 flex max-w-2xl flex-col gap-3 border border-border p-4 sm:flex-row sm:items-end"
+        className="mb-8 flex max-w-2xl flex-col gap-3 border border-border glass-panel p-4 sm:flex-row sm:items-end"
       >
         <label className="min-w-0 flex-1 space-y-1">
           <span className="text-sm text-muted">Name</span>
@@ -175,7 +175,7 @@ export default function CategoriesPage() {
       ) : rows.length === 0 ? (
         <p className="text-muted">No categories yet.</p>
       ) : (
-        <ul className="divide-y divide-border border border-border">
+        <ul className="divide-y divide-border border border-border glass-panel">
           {rows.map((row) => (
             <li
               key={row.id}

@@ -48,7 +48,7 @@ export function ConfirmDeleteModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-delete-title"
-        className="relative z-10 w-full max-w-md border border-border bg-surface p-6 shadow-[0_0_24px_color-mix(in_srgb,var(--neon-orange)_20%,transparent)]"
+        className="relative z-10 w-full max-w-md border border-border glass-panel-strong p-6 shadow-[0_0_24px_color-mix(in_srgb,var(--neon-orange)_20%,transparent)]"
       >
         <h2
           id="confirm-delete-title"

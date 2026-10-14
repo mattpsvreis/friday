@@ -66,7 +66,7 @@ export function BalancesEditor() {
   return (
     <form
       onSubmit={onSubmit}
-      className="grid max-w-xl gap-3 border border-border p-4 sm:grid-cols-2"
+      className="grid max-w-xl gap-3 border border-border glass-panel p-4 sm:grid-cols-2"
     >
       <h2 className="sm:col-span-2 text-sm uppercase tracking-wide text-muted">
         Balance snapshot

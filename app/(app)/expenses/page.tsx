@@ -10,6 +10,7 @@ import { splitTotalAcrossInstallments } from "@/lib/purchases";
 import { apiFetch } from "@/lib/session-client";
 import {
   BTN_DANGER_CLASS,
+  BTN_LINK_CLASS,
   BTN_PRIMARY_CLASS,
   INPUT_CLASS,
   TABLE_CLASS,
@@ -76,6 +77,19 @@ const METHODS = [
   "card_payment",
 ] as const;
 
+const EMPTY_PURCHASE = {
+  creditCardId: "",
+  description: "",
+  purchaseDate: "",
+  installmentCount: "1",
+  totalAmount: "",
+  categoryId: "",
+};
+
+function centsToBrlInput(cents: number) {
+  return (cents / 100).toFixed(2).replace(".", ",");
+}
+
 export default function ExpensesPage() {
   const today = useTodayIso();
   const confirmDelete = useConfirmDelete<LedgerEntry>();
@@ -86,6 +100,7 @@ export default function ExpensesPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editPurchaseId, setEditPurchaseId] = useState<string | null>(null);
 
   const [expense, setExpense] = useState({
     amount: "",
@@ -96,18 +111,13 @@ export default function ExpensesPage() {
     creditCardId: "",
   });
 
-  const [purchase, setPurchase] = useState({
-    creditCardId: "",
-    description: "",
-    purchaseDate: "",
-    installmentCount: "1",
-    totalAmount: "",
-    currentNumber: "1",
-    categoryId: "",
-  });
+  const [purchase, setPurchase] = useState(EMPTY_PURCHASE);
 
   const expenseCategories = useMemo(
-    () => categories.filter((c) => c.kind === "expense"),
+    () =>
+      categories
+        .filter((c) => c.kind === "expense")
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [categories],
   );
 
@@ -243,6 +253,7 @@ export default function ExpensesPage() {
       throw new Error(json.error ?? "Delete failed");
     }
     setPurchaseRows((prev) => prev.filter((p) => p.id !== row.id));
+    if (editPurchaseId === row.id) resetPurchaseForm();
   }
 
   async function onAddExpense(e: FormEvent) {
@@ -273,7 +284,28 @@ export default function ExpensesPage() {
     setExpense((s) => ({ ...s, amount: "", description: "" }));
   }
 
-  async function onAddPurchase(e: FormEvent) {
+  function resetPurchaseForm() {
+    setEditPurchaseId(null);
+    setPurchase({
+      ...EMPTY_PURCHASE,
+      purchaseDate: today ?? "",
+    });
+  }
+
+  function startEditPurchase(row: PurchaseRow) {
+    setEditPurchaseId(row.id);
+    setPurchase({
+      creditCardId: row.creditCardId,
+      description: row.merchant,
+      purchaseDate: row.purchaseDate,
+      installmentCount: String(row.installmentCount),
+      totalAmount: centsToBrlInput(row.totalCents),
+      categoryId: row.categoryId ?? "",
+    });
+    setError(null);
+  }
+
+  async function onSavePurchase(e: FormEvent) {
     e.preventDefault();
     setError(null);
     const body = {
@@ -282,24 +314,24 @@ export default function ExpensesPage() {
       purchaseDate: purchase.purchaseDate,
       installmentCount: Number(purchase.installmentCount),
       totalCents: parseBrlInput(purchase.totalAmount),
-      currentNumber: Number(purchase.currentNumber),
       categoryId: purchase.categoryId || null,
-      status: "confirmed" as const,
+      ...(editPurchaseId ? { id: editPurchaseId } : {}),
     };
     const res = await apiFetch("/api/purchases", {
-      method: "POST",
+      method: editPurchaseId ? "PUT" : "POST",
       body: JSON.stringify(body),
     });
     const json = (await res.json()) as { error?: string };
     if (!res.ok) {
-      setError(json.error ?? "Could not add purchase");
+      setError(
+        json.error ??
+          (editPurchaseId
+            ? "Could not update purchase"
+            : "Could not add purchase"),
+      );
       return;
     }
-    setPurchase((s) => ({
-      ...s,
-      description: "",
-      totalAmount: "",
-    }));
+    resetPurchaseForm();
     void refreshLedger();
   }
 
@@ -311,7 +343,7 @@ export default function ExpensesPage() {
       />
 
       <div className="mb-10 grid gap-8 lg:grid-cols-2">
-        <form onSubmit={onAddExpense} className="space-y-3 border border-border p-4">
+        <form onSubmit={onAddExpense} className="space-y-3 border border-border glass-panel p-4">
           <h2 className="text-sm uppercase tracking-wide text-neon-orange">
             Add expense
           </h2>
@@ -401,9 +433,9 @@ export default function ExpensesPage() {
           </button>
         </form>
 
-        <form onSubmit={onAddPurchase} className="space-y-3 border border-border p-4">
+        <form onSubmit={onSavePurchase} className="space-y-3 border border-border glass-panel p-4">
           <h2 className="text-sm uppercase tracking-wide text-neon-orange">
-            Installment purchase
+            {editPurchaseId ? "Edit installment purchase" : "Installment purchase"}
           </h2>
           <label className="block space-y-1">
             <span className="text-sm text-muted">Card</span>
@@ -446,33 +478,19 @@ export default function ExpensesPage() {
               required
             />
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1">
-              <span className="text-sm text-muted">Installments</span>
-              <input
-                type="number"
-                min={1}
-                className={INPUT_CLASS}
-                value={purchase.installmentCount}
-                onChange={(e) =>
-                  setPurchase({ ...purchase, installmentCount: e.target.value })
-                }
-                required
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="text-sm text-muted">Current #</span>
-              <input
-                type="number"
-                min={1}
-                className={INPUT_CLASS}
-                value={purchase.currentNumber}
-                onChange={(e) =>
-                  setPurchase({ ...purchase, currentNumber: e.target.value })
-                }
-              />
-            </label>
-          </div>
+          <label className="block space-y-1">
+            <span className="text-sm text-muted">Installments</span>
+            <input
+              type="number"
+              min={1}
+              className={INPUT_CLASS}
+              value={purchase.installmentCount}
+              onChange={(e) =>
+                setPurchase({ ...purchase, installmentCount: e.target.value })
+              }
+              required
+            />
+          </label>
           <label className="block space-y-1">
             <span className="text-sm text-muted">Total amount (BRL)</span>
             <input
@@ -511,9 +529,20 @@ export default function ExpensesPage() {
               ))}
             </select>
           </label>
-          <button type="submit" className={BTN_PRIMARY_CLASS}>
-            Add purchase
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button type="submit" className={BTN_PRIMARY_CLASS}>
+              {editPurchaseId ? "Update purchase" : "Add purchase"}
+            </button>
+            {editPurchaseId ? (
+              <button
+                type="button"
+                className={BTN_LINK_CLASS}
+                onClick={resetPurchaseForm}
+              >
+                Cancel edit
+              </button>
+            ) : null}
+          </div>
         </form>
       </div>
 
@@ -581,19 +610,28 @@ export default function ExpensesPage() {
                             {formatBrl(row.totalCents)}
                           </td>
                           <td className={`${TD_CLASS} text-right`}>
-                            <button
-                              type="button"
-                              className={BTN_DANGER_CLASS}
-                              onClick={() =>
-                                confirmDeletePurchase.requestDelete(
-                                  row,
-                                  "Delete card purchase",
-                                  `${row.merchant} · ${row.purchaseDate} · ${formatBrl(row.totalCents)}`,
-                                )
-                              }
-                            >
-                              Delete
-                            </button>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                className={BTN_LINK_CLASS}
+                                onClick={() => startEditPurchase(row)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className={BTN_DANGER_CLASS}
+                                onClick={() =>
+                                  confirmDeletePurchase.requestDelete(
+                                    row,
+                                    "Delete card purchase",
+                                    `${row.merchant} · ${row.purchaseDate} · ${formatBrl(row.totalCents)}`,
+                                  )
+                                }
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );

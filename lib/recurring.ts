@@ -5,6 +5,7 @@ import {
   clampDay,
   cycleCloseDateFor,
   dateWithDay,
+  faturaExpenseAttributionDate,
   inInclusiveRange,
   openCycleCloseDate,
   paymentDueForCycle,
@@ -81,8 +82,9 @@ function chargeDateInMonth(
 }
 
 /**
- * Card recurrings whose fatura payment due falls in [start, end].
- * Checks charges in the viewed month and the prior month (close/due lag).
+ * Card recurrings budgeted in [start, end] using due-month − 1 attribution
+ * (same paycheck-planning rule as purchase installments).
+ * Checks nearby charge months for close→due lag.
  */
 export function sumRecurringCardPaymentsDueInWindow(
   rules: RecurringRuleRow[],
@@ -101,12 +103,13 @@ export function sumRecurringCardPaymentsDueInWindow(
     const card = cardsById.get(rule.creditCardId!);
     if (!card) continue;
 
-    for (const delta of [0, -1]) {
+    for (const delta of [-1, 0, 1]) {
       const { year, monthIndex } = shiftYearMonth(viewYear, viewMonth, delta);
       const charge = chargeDateInMonth(year, monthIndex, rule.dayOfMonth);
       const close = cycleCloseDateFor(charge, card.cycleCloseDay);
       const due = paymentDueForCycle(close, card.paymentDueDay);
-      if (inInclusiveRange(due, start, end)) {
+      const attributed = faturaExpenseAttributionDate(due);
+      if (inInclusiveRange(attributed, start, end)) {
         total += rule.amountCents;
         break;
       }

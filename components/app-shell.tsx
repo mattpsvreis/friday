@@ -77,6 +77,12 @@ function SidebarNav({
   pathname: string;
   onNavigate?: () => void;
 }) {
+  const [year, setYear] = useState<number | null>(null);
+
+  useEffect(() => {
+    setYear(new Date().getFullYear());
+  }, []);
+
   return (
     <div className="flex h-full flex-col">
       <BrandMark onNavigate={onNavigate} className="px-3 py-3" />
@@ -92,12 +98,25 @@ function SidebarNav({
         ))}
       </nav>
 
-      <div className="mt-auto px-2 pb-8 pt-2">
+      <div className="mt-auto px-2 mb-8 pt-2">
         <NavLink
           item={SETTINGS_NAV}
           pathname={pathname}
           onNavigate={onNavigate}
         />
+        <p className="mt-3 px-3 text-[10px] leading-relaxed text-muted/40">
+          Copyright:{" "}
+          <a
+            href="https://github.com/mattpsvreis"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline-offset-2 transition-colors hover:text-neon-green hover:underline"
+          >
+            @mattpsvreis
+          </a>
+          {" | "}
+          {year ?? "\u00a0"}
+        </p>
       </div>
     </div>
   );
@@ -123,12 +142,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [open]);
 
   return (
-    <div className="min-h-full bg-background text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 border-r border-border bg-surface lg:flex lg:flex-col">
+    <div className="min-h-full text-foreground">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 border-r border-border glass-panel-strong lg:flex lg:flex-col">
         <SidebarNav pathname={pathname} />
       </aside>
 
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-surface/95 px-4 backdrop-blur-sm lg:hidden">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-border glass-panel-strong px-4 lg:hidden">
         <button
           type="button"
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-border text-neon-orange"
@@ -145,11 +164,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <>
           <button
             type="button"
-            className="fixed inset-0 z-40 bg-black/70 lg:hidden"
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] lg:hidden"
             aria-label="Close menu overlay"
             onClick={() => setOpen(false)}
           />
-          <aside className="fixed inset-y-0 left-0 z-50 flex w-56 max-w-[85vw] flex-col border-r border-border bg-surface lg:hidden">
+          <aside className="fixed inset-y-0 left-0 z-50 flex w-56 max-w-[85vw] flex-col border-r border-border glass-panel-strong lg:hidden">
             <SidebarNav pathname={pathname} onNavigate={() => setOpen(false)} />
           </aside>
         </>

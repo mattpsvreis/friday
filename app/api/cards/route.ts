@@ -7,6 +7,7 @@ import {
   readJson,
   unauthorizedIfNeeded,
 } from "@/lib/api";
+import { loadCardLimitUsages } from "@/lib/card-limits";
 
 type CardBody = {
   id?: string;
@@ -56,8 +57,8 @@ export async function GET(request: Request) {
   const unauthorized = await unauthorizedIfNeeded(request);
   if (unauthorized) return unauthorized;
 
-  const rows = await db.select().from(creditCards);
-  return jsonOk(rows);
+  const usages = await loadCardLimitUsages();
+  return jsonOk(usages);
 }
 
 export async function POST(request: Request) {

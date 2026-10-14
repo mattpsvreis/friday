@@ -75,6 +75,13 @@ type RecurringItem = {
   categoryColor: string | null;
 };
 
+type ExpenseBreakdown = {
+  totalCents: number;
+  oneTimeCashCents: number;
+  recurringCashCents: number;
+  installmentsCents: number;
+};
+
 type DashboardData = {
   window: { start: string; end: string; year: number; month: number };
   spendableCents: number;
@@ -82,6 +89,7 @@ type DashboardData = {
   incomesCents: number;
   expenseCents: number;
   expectedEndCents: number;
+  predicted: ExpenseBreakdown;
   byCategory: CategorySlice[];
   series: MonthSeriesPoint[];
   recentTransactions: RecentTx[];
@@ -142,7 +150,7 @@ function KpiCard({
         : "text-muted";
 
   return (
-    <div className="flex items-center gap-4 border border-border bg-surface/40 px-4 py-3">
+    <div className="flex items-center gap-4 border border-border glass-panel px-4 py-3">
       <Icon
         className={["size-10 shrink-0", iconColor].join(" ")}
         strokeWidth={1.5}
@@ -180,7 +188,7 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex min-h-0 flex-col border border-border">
+    <section className="flex min-h-0 flex-col border border-border glass-panel">
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
           {title}
@@ -193,6 +201,106 @@ function Panel({
       </div>
       <div className="flex-1 p-4">{children}</div>
     </section>
+  );
+}
+
+function ExpenseMixPanel({
+  recurringCents,
+  oneTimeCents,
+  installmentsCents,
+  totalCents,
+}: {
+  recurringCents: number;
+  oneTimeCents: number;
+  installmentsCents: number;
+  totalCents: number;
+}) {
+  const mix = [
+    {
+      key: "recurring",
+      label: "Recurring",
+      hint: "ON cash + card (card uses due−1)",
+      cents: recurringCents,
+      color: "#39ff14",
+    },
+    {
+      key: "oneTime",
+      label: "One-timers",
+      hint: "Cash ledger expenses",
+      cents: oneTimeCents,
+      color: "#ff6b00",
+    },
+    {
+      key: "installments",
+      label: "Installments",
+      hint: "Parcels budgeted here (paid next month)",
+      cents: installmentsCents,
+      color: "#7dd3fc",
+    },
+  ];
+  const total =
+    totalCents || mix.reduce((sum, row) => sum + row.cents, 0);
+
+  return (
+    <div className="flex h-72 flex-col justify-between gap-4">
+      <div className="space-y-3">
+        <div className="flex h-3 overflow-hidden border border-border bg-background/50">
+          {mix.map((row) => {
+            const width =
+              total > 0 ? Math.max(0, (row.cents / total) * 100) : 0;
+            if (width <= 0) return null;
+            return (
+              <div
+                key={row.key}
+                className="h-full"
+                style={{
+                  width: `${width}%`,
+                  backgroundColor: row.color,
+                }}
+                title={`${row.label}: ${formatBrl(row.cents)}`}
+              />
+            );
+          })}
+        </div>
+        <ul className="space-y-3 text-sm">
+          {mix.map((row) => {
+            const pct =
+              total > 0 ? Math.round((row.cents / total) * 100) : 0;
+            return (
+              <li
+                key={row.key}
+                className="flex items-start justify-between gap-3"
+              >
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-foreground">
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: row.color }}
+                    />
+                    {row.label}
+                  </span>
+                  <span className="mt-0.5 block pl-4 text-xs text-muted">
+                    {row.hint}
+                  </span>
+                </span>
+                <span className="shrink-0 text-right tabular-nums">
+                  <span className="text-neon-orange">
+                    {formatBrl(row.cents)}
+                  </span>
+                  <span className="block text-xs text-muted">{pct}%</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <div className="flex items-baseline justify-between border-t border-border pt-3 text-sm">
+        <span className="uppercase tracking-wide text-muted">Total</span>
+        <span className="tabular-nums text-neon-orange">
+          {formatBrl(total)}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -577,42 +685,59 @@ export function DashboardView() {
             </Panel>
           </div>
 
-          <Panel title="Expenses by Category (−3 … +3 months)">
-            <div className="relative z-0 h-72 overflow-visible">
-              {categoryKeys.length === 0 ? (
-                <p className="text-sm text-muted">No category spend in this window.</p>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={stackedChart}>
-                    <CartesianGrid stroke="color-mix(in srgb, #39ff14 12%, transparent)" />
-                    <XAxis
-                      dataKey="label"
-                      stroke="#8a8a8a"
-                      tick={<MonthTick />}
-                      interval={0}
-                    />
-                    <YAxis
-                      stroke="#8a8a8a"
-                      fontSize={11}
-                      width={72}
-                      tickFormatter={(v: number) => brlAxis(v)}
-                    />
-                    <Tooltip {...CHART_TOOLTIP} />
-                    <Legend wrapperStyle={{ position: "relative", zIndex: 0 }} />
-                    {categoryKeys.map((key) => (
-                      <Bar
-                        key={key.id}
-                        dataKey={key.id}
-                        name={key.name}
-                        stackId="expense"
-                        fill={key.color}
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Panel title="Expenses by Category (−3 … +3 months)">
+              <div className="relative z-0 h-72 overflow-visible">
+                {categoryKeys.length === 0 ? (
+                  <p className="text-sm text-muted">
+                    No category spend in this window.
+                  </p>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stackedChart}>
+                      <CartesianGrid stroke="color-mix(in srgb, #39ff14 12%, transparent)" />
+                      <XAxis
+                        dataKey="label"
+                        stroke="#8a8a8a"
+                        tick={<MonthTick />}
+                        interval={0}
                       />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </Panel>
+                      <YAxis
+                        stroke="#8a8a8a"
+                        fontSize={11}
+                        width={72}
+                        tickFormatter={(v: number) => brlAxis(v)}
+                      />
+                      <Tooltip {...CHART_TOOLTIP} />
+                      <Legend
+                        wrapperStyle={{ position: "relative", zIndex: 0 }}
+                      />
+                      {categoryKeys.map((key) => (
+                        <Bar
+                          key={key.id}
+                          dataKey={key.id}
+                          name={key.name}
+                          stackId="expense"
+                          fill={key.color}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </Panel>
+
+            <Panel title="Expense mix (this month)">
+              <ExpenseMixPanel
+                recurringCents={data.predicted?.recurringCashCents ?? 0}
+                oneTimeCents={data.predicted?.oneTimeCashCents ?? 0}
+                installmentsCents={data.predicted?.installmentsCents ?? 0}
+                totalCents={
+                  data.predicted?.totalCents ?? data.expenseCents
+                }
+              />
+            </Panel>
+          </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
             <Panel

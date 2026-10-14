@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { CategoryPill } from "@/components/category-pill";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
@@ -25,6 +26,20 @@ import {
   useTableSort,
   type SortDir,
 } from "@/lib/use-table-sort";
+
+const CHART_TOOLTIP = {
+  wrapperStyle: { zIndex: 40, outline: "none" } as const,
+  contentStyle: {
+    background: "#121212",
+    border: "1px solid color-mix(in srgb, #39ff14 28%, transparent)",
+    position: "relative" as const,
+    zIndex: 40,
+  },
+  formatter: (value: number | string | ReadonlyArray<number | string> | undefined) =>
+    formatBrl(Math.round(Number(value) * 100)),
+};
+
+const UNCATEGORIZED_COLOR = "#5a5a5a";
 
 type RecurringSortKey =
   | "name"
@@ -74,7 +89,10 @@ export default function RecurringPage() {
   const [form, setForm] = useState(EMPTY_FORM);
 
   const filteredCategories = useMemo(
-    () => categories.filter((c) => c.kind === form.direction),
+    () =>
+      categories
+        .filter((c) => c.kind === form.direction)
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [categories, form.direction],
   );
 
@@ -116,6 +134,44 @@ export default function RecurringPage() {
     sortDir,
     toggle,
   } = useTableSort<Rule, RecurringSortKey>(rules, "name", compareRules);
+
+  const expenseByCategory = useMemo(() => {
+    const totals = new Map<
+      string,
+      { name: string; color: string; cents: number }
+    >();
+    for (const rule of rules) {
+      if (!rule.enabled || rule.direction !== "expense") continue;
+      const cat = rule.categoryId
+        ? categoryById.get(rule.categoryId)
+        : undefined;
+      const key = cat?.id ?? "__none__";
+      const existing = totals.get(key);
+      if (existing) {
+        existing.cents += rule.amountCents;
+      } else {
+        totals.set(key, {
+          name: cat?.name ?? "Uncategorized",
+          color: cat?.color ?? UNCATEGORIZED_COLOR,
+          cents: rule.amountCents,
+        });
+      }
+    }
+    return [...totals.values()]
+      .filter((s) => s.cents > 0)
+      .sort((a, b) => b.cents - a.cents)
+      .map((s) => ({
+        name: s.name,
+        color: s.color,
+        cents: s.cents,
+        value: s.cents / 100,
+      }));
+  }, [rules, categoryById]);
+
+  const expenseTotalCents = useMemo(
+    () => expenseByCategory.reduce((sum, s) => sum + s.cents, 0),
+    [expenseByCategory],
+  );
 
   useEffect(() => {
     Promise.all([
@@ -237,9 +293,10 @@ export default function RecurringPage() {
         description="Templates summed on the Dashboard. They do not create ledger rows."
       />
 
+      <div className="mb-8 grid gap-4 xl:grid-cols-2">
       <form
         onSubmit={onSubmit}
-        className="mb-8 grid max-w-2xl gap-3 border border-border p-4 sm:grid-cols-2"
+        className="grid gap-3 border border-border glass-panel p-4 sm:grid-cols-2"
       >
         <h2 className="sm:col-span-2 text-sm uppercase tracking-wide text-muted">
           {editId ? "Edit rule" : "New rule"}
@@ -350,6 +407,79 @@ export default function RecurringPage() {
           ) : null}
         </div>
       </form>
+
+      <section className="flex min-h-0 flex-col border border-border glass-panel">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+            Expense by category
+          </h2>
+          <p className="mt-1 text-xs text-muted">ON expense templates only</p>
+        </div>
+        <div className="flex flex-1 flex-col gap-4 p-4 lg:flex-row lg:items-center">
+          {expenseByCategory.length === 0 ? (
+            <p className="text-sm text-muted">No ON expense rules yet.</p>
+          ) : (
+            <>
+              <div className="relative mx-auto h-52 w-full max-w-[14rem] shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={expenseByCategory}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius="55%"
+                      outerRadius="80%"
+                      paddingAngle={2}
+                    >
+                      {expenseByCategory.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip {...CHART_TOOLTIP} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <p className="text-xs uppercase text-muted">Total</p>
+                    <p className="text-sm tabular-nums text-neon-orange">
+                      {formatBrl(expenseTotalCents)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <ul className="max-h-52 flex-1 space-y-2 overflow-y-auto text-sm">
+                {expenseByCategory.map((entry) => {
+                  const pct =
+                    expenseTotalCents > 0
+                      ? Math.round((entry.cents / expenseTotalCents) * 100)
+                      : 0;
+                  return (
+                    <li
+                      key={entry.name}
+                      className="flex items-center justify-between gap-3"
+                    >
+                      <span className="flex items-center gap-2 text-muted">
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: entry.color }}
+                        />
+                        {entry.name}
+                      </span>
+                      <span className="tabular-nums">
+                        <span className="text-neon-orange">
+                          {formatBrl(entry.cents)}
+                        </span>
+                        <span className="text-muted"> · {pct}%</span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </div>
+      </section>
+      </div>
 
       {error ? <p className="mb-4 text-sm text-neon-orange">{error}</p> : null}
 

@@ -7,13 +7,94 @@ import {
   readJson,
   unauthorizedIfNeeded,
 } from "@/lib/api";
-import {
-  cycleCloseDateFor,
-  parseIsoDate,
-  shiftCycleClose,
-  toIsoDate,
-} from "@/lib/dates";
+import { cycleCloseDateFor, parseIsoDate, toIsoDate } from "@/lib/dates";
 import { buildInstallments } from "@/lib/purchases";
+
+type PurchaseBody = {
+  id?: string;
+  creditCardId?: string;
+  merchant?: string;
+  description?: string;
+  purchaseDate?: string;
+  installmentCount?: number;
+  totalCents?: number;
+  amountPerInstallmentCents?: number;
+  categoryId?: string | null;
+};
+
+type ParsedPurchase =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      creditCardId: string;
+      description: string;
+      purchaseDate: string;
+      installmentCount: number;
+      totalCents?: number;
+      amountPerInstallmentCents?: number;
+      categoryId: string | null;
+    };
+
+function parsePurchaseInput(body: PurchaseBody): ParsedPurchase {
+  const description = (body.description ?? body.merchant)?.trim();
+
+  if (!body.creditCardId) return { ok: false, error: "creditCardId is required" };
+  if (!description) return { ok: false, error: "description is required" };
+  if (!body.purchaseDate) return { ok: false, error: "purchaseDate is required" };
+  if (typeof body.installmentCount !== "number") {
+    return { ok: false, error: "installmentCount is required" };
+  }
+  if (body.installmentCount < 1) {
+    return { ok: false, error: "installmentCount must be at least 1" };
+  }
+  if (
+    typeof body.totalCents !== "number" &&
+    typeof body.amountPerInstallmentCents !== "number"
+  ) {
+    return { ok: false, error: "totalCents is required" };
+  }
+
+  return {
+    ok: true,
+    creditCardId: body.creditCardId,
+    description,
+    purchaseDate: body.purchaseDate,
+    installmentCount: body.installmentCount,
+    totalCents: body.totalCents,
+    amountPerInstallmentCents: body.amountPerInstallmentCents,
+    categoryId: body.categoryId ?? null,
+  };
+}
+
+async function buildPurchaseSchedule(input: {
+  creditCardId: string;
+  purchaseDate: string;
+  installmentCount: number;
+  totalCents?: number;
+  amountPerInstallmentCents?: number;
+}) {
+  const [card] = await db
+    .select()
+    .from(creditCards)
+    .where(eq(creditCards.id, input.creditCardId));
+  if (!card) {
+    return { ok: false as const, error: "Card not found", status: 404 };
+  }
+
+  const firstCycleCloseIso = toIsoDate(
+    cycleCloseDateFor(parseIsoDate(input.purchaseDate), card.cycleCloseDay),
+  );
+
+  const built = buildInstallments({
+    installmentCount: input.installmentCount,
+    totalCents: input.totalCents,
+    amountPerInstallmentCents: input.amountPerInstallmentCents,
+    currentNumber: 1,
+    currentCycleCloseIso: firstCycleCloseIso,
+  });
+
+  return { ok: true as const, built };
+}
 
 export async function GET(request: Request) {
   const unauthorized = await unauthorizedIfNeeded(request);
@@ -56,70 +137,25 @@ export async function POST(request: Request) {
   const unauthorized = await unauthorizedIfNeeded(request);
   if (unauthorized) return unauthorized;
 
-  const body = await readJson<{
-    creditCardId?: string;
-    merchant?: string;
-    description?: string;
-    purchaseDate?: string;
-    installmentCount?: number;
-    totalCents?: number;
-    amountPerInstallmentCents?: number;
-    currentNumber?: number;
-    categoryId?: string | null;
-  }>(request);
+  const body = await readJson<PurchaseBody>(request);
+  const parsed = parsePurchaseInput(body);
+  if (!parsed.ok) return jsonError(parsed.error);
 
-  const description = (body.description ?? body.merchant)?.trim();
-
-  if (!body.creditCardId) return jsonError("creditCardId is required");
-  if (!description) return jsonError("description is required");
-  if (!body.purchaseDate) return jsonError("purchaseDate is required");
-  if (typeof body.installmentCount !== "number") {
-    return jsonError("installmentCount is required");
+  const scheduled = await buildPurchaseSchedule(parsed);
+  if (!scheduled.ok) {
+    return jsonError(scheduled.error, scheduled.status);
   }
-  if (
-    typeof body.totalCents !== "number" &&
-    typeof body.amountPerInstallmentCents !== "number"
-  ) {
-    return jsonError("totalCents is required");
-  }
-
-  const [card] = await db
-    .select()
-    .from(creditCards)
-    .where(eq(creditCards.id, body.creditCardId));
-  if (!card) return jsonError("Card not found", 404);
-
-  const currentNumber = body.currentNumber ?? 1;
-  if (currentNumber < 1 || currentNumber > body.installmentCount) {
-    return jsonError("currentNumber must be between 1 and installmentCount");
-  }
-
-  const firstClose = cycleCloseDateFor(
-    parseIsoDate(body.purchaseDate),
-    card.cycleCloseDay,
-  );
-  const currentCycleCloseIso = toIsoDate(
-    shiftCycleClose(firstClose, currentNumber - 1),
-  );
-
-  const built = buildInstallments({
-    installmentCount: body.installmentCount,
-    totalCents: body.totalCents,
-    amountPerInstallmentCents: body.amountPerInstallmentCents,
-    currentNumber,
-    currentCycleCloseIso,
-  });
 
   const result = await db.transaction(async (tx) => {
     const [purchase] = await tx
       .insert(purchases)
       .values({
-        creditCardId: body.creditCardId!,
-        merchant: description,
-        purchaseDate: body.purchaseDate!,
-        totalCents: built.totalCents,
-        installmentCount: body.installmentCount!,
-        categoryId: body.categoryId ?? null,
+        creditCardId: parsed.creditCardId,
+        merchant: parsed.description,
+        purchaseDate: parsed.purchaseDate,
+        totalCents: scheduled.built.totalCents,
+        installmentCount: parsed.installmentCount,
+        categoryId: parsed.categoryId,
         status: "confirmed",
       })
       .returning();
@@ -127,7 +163,7 @@ export async function POST(request: Request) {
     const installmentRows = await tx
       .insert(installments)
       .values(
-        built.installments.map((row) => ({
+        scheduled.built.installments.map((row) => ({
           purchaseId: purchase.id,
           number: row.number,
           ofTotal: row.ofTotal,
@@ -140,5 +176,60 @@ export async function POST(request: Request) {
     return { purchase, installments: installmentRows };
   });
 
+  return jsonOk(result);
+}
+
+export async function PUT(request: Request) {
+  const unauthorized = await unauthorizedIfNeeded(request);
+  if (unauthorized) return unauthorized;
+
+  const body = await readJson<PurchaseBody>(request);
+  if (!body.id) return jsonError("id is required");
+
+  const parsed = parsePurchaseInput(body);
+  if (!parsed.ok) return jsonError(parsed.error);
+
+  const scheduled = await buildPurchaseSchedule(parsed);
+  if (!scheduled.ok) {
+    return jsonError(scheduled.error, scheduled.status);
+  }
+
+  const purchaseId = body.id;
+
+  const result = await db.transaction(async (tx) => {
+    const [purchase] = await tx
+      .update(purchases)
+      .set({
+        creditCardId: parsed.creditCardId,
+        merchant: parsed.description,
+        purchaseDate: parsed.purchaseDate,
+        totalCents: scheduled.built.totalCents,
+        installmentCount: parsed.installmentCount,
+        categoryId: parsed.categoryId,
+      })
+      .where(eq(purchases.id, purchaseId))
+      .returning();
+
+    if (!purchase) return null;
+
+    await tx.delete(installments).where(eq(installments.purchaseId, purchaseId));
+
+    const installmentRows = await tx
+      .insert(installments)
+      .values(
+        scheduled.built.installments.map((row) => ({
+          purchaseId,
+          number: row.number,
+          ofTotal: row.ofTotal,
+          amountCents: row.amountCents,
+          cycleCloseDate: row.cycleCloseDate,
+        })),
+      )
+      .returning();
+
+    return { purchase, installments: installmentRows };
+  });
+
+  if (!result) return jsonError("Purchase not found", 404);
   return jsonOk(result);
 }

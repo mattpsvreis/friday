@@ -22,6 +22,7 @@ export async function GET(request: Request) {
   if (unauthorized) return unauthorized;
 
   const rows = await db.select().from(categories);
+  rows.sort((a, b) => a.name.localeCompare(b.name));
   return jsonOk(rows);
 }
 

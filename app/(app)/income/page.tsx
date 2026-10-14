@@ -61,7 +61,10 @@ export default function IncomePage() {
   });
 
   const incomeCategories = useMemo(
-    () => categories.filter((c) => c.kind === "income"),
+    () =>
+      categories
+        .filter((c) => c.kind === "income")
+        .sort((a, b) => a.name.localeCompare(b.name)),
     [categories],
   );
 
@@ -176,7 +179,7 @@ export default function IncomePage() {
     <div>
       <PageHeading title="Income" description="Salary, refunds, and other inflows." />
 
-      <form onSubmit={onSubmit} className="mb-8 max-w-md space-y-3 border border-border p-4">
+      <form onSubmit={onSubmit} className="mb-8 max-w-md space-y-3 border border-border glass-panel p-4">
         <label className="block space-y-1">
           <span className="text-sm text-muted">Amount (BRL)</span>
           <input
