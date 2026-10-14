@@ -9,7 +9,7 @@
 - `credit_cards` — label, bank, last4, limit, cycle/payment days
 - `purchases` + `installments` — card purchases and parcelas
 - `ledger_entries` — cash incomes/expenses (and card_payment)
-- `recurring_rules` — templates that materialize ledger rows
+- `recurring_rules` — templates summed on the dashboard (no ledger materialization)
 - `import_batches` — PDF import metadata/warnings
 
 ## Extrato import
@@ -35,11 +35,13 @@
 
 ## Dashboard splits
 
-- `predicted.oneTimeCashCents` — confirmed non-recurring cash expenses (excl. card_payment)
-- `predicted.recurringCashCents` — confirmed recurring cash expenses
+- `predicted.oneTimeCashCents` — confirmed ledger cash expenses in the month (excl. card methods)
+- `predicted.recurringCashCents` — sum of enabled recurring expense rules (excl. card methods)
+- `incomesCents` — confirmed ledger income in the month + enabled recurring income rules
 - `predicted.installmentsCents` — confirmed installments whose payment due falls in window
 - `faturaPaymentsDueCents` — same installment dues (cash leaving for card bills)
 - Card `usedCents` — remaining confirmed installments from open cycle forward
+- Auto-generated ledger rows from the old materialization model are purged on dashboard load
 
 ## Nav routes
 

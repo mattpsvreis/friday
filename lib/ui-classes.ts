@@ -9,3 +9,15 @@ export const BTN_LINK_CLASS =
 
 export const BTN_DANGER_CLASS =
   "border border-border px-3 py-1.5 text-sm text-muted transition-colors hover:border-red-500/50 hover:text-red-400";
+
+export const TABLE_WRAP_CLASS = "w-full overflow-x-auto border border-border";
+
+export const TABLE_CLASS = "w-full min-w-[40rem] border-collapse text-left text-sm";
+
+export const TH_CLASS =
+  "border-b border-border bg-surface px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted";
+
+export const TH_SORT_CLASS =
+  "border-b border-border bg-surface px-3 py-2 text-left text-xs font-medium uppercase tracking-wide text-muted transition-colors hover:text-neon-green";
+
+export const TD_CLASS = "border-b border-border px-3 py-2 align-middle text-foreground";

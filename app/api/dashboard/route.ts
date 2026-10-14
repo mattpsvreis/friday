@@ -1,6 +1,5 @@
 import { jsonError, jsonOk, unauthorizedIfNeeded } from "@/lib/api";
 import { getDashboardData, resolveDashboardMonth } from "@/lib/dashboard";
-import { materializeRecurring } from "@/lib/recurring";
 
 export async function GET(request: Request) {
   const unauthorized = await unauthorizedIfNeeded(request);
@@ -23,7 +22,6 @@ export async function GET(request: Request) {
     );
   }
 
-  await materializeRecurring();
   const data = await getDashboardData(view);
   return jsonOk(data);
 }

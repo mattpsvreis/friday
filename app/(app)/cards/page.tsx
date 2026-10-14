@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
 import { formatBrl, parseBrlInput } from "@/lib/money";
 import { apiFetch } from "@/lib/session-client";
@@ -10,6 +11,7 @@ import {
   BTN_PRIMARY_CLASS,
   INPUT_CLASS,
 } from "@/lib/ui-classes";
+import { useConfirmDelete } from "@/lib/use-confirm-delete";
 
 type Card = {
   id: string;
@@ -31,6 +33,7 @@ const emptyForm = {
 };
 
 export default function CardsPage() {
+  const confirmDelete = useConfirmDelete<Card>();
   const [cards, setCards] = useState<Card[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState<string | null>(null);
@@ -99,18 +102,18 @@ export default function CardsPage() {
     cancelEdit();
   }
 
-  async function onDelete(id: string) {
+  async function deleteCard(card: Card) {
     setError(null);
-    const res = await apiFetch(`/api/cards?id=${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`/api/cards?id=${encodeURIComponent(card.id)}`, {
       method: "DELETE",
     });
     if (!res.ok) {
       const json = (await res.json()) as { error?: string };
       setError(json.error ?? "Delete failed");
-      return;
+      throw new Error(json.error ?? "Delete failed");
     }
-    setCards((prev) => prev.filter((c) => c.id !== id));
-    if (editId === id) cancelEdit();
+    setCards((prev) => prev.filter((c) => c.id !== card.id));
+    if (editId === card.id) cancelEdit();
   }
 
   return (
@@ -225,7 +228,13 @@ export default function CardsPage() {
                 <button
                   type="button"
                   className={BTN_DANGER_CLASS}
-                  onClick={() => void onDelete(card.id)}
+                  onClick={() =>
+                    confirmDelete.requestDelete(
+                      card,
+                      "Delete card",
+                      `${card.label}${card.last4 ? ` · •••• ${card.last4}` : ""}`,
+                    )
+                  }
                 >
                   Delete
                 </button>
@@ -234,6 +243,17 @@ export default function CardsPage() {
           ))}
         </ul>
       )}
+
+      <ConfirmDeleteModal
+        open={confirmDelete.open}
+        title={confirmDelete.pending?.title ?? "Delete"}
+        description={confirmDelete.pending?.description}
+        step={confirmDelete.step}
+        busy={confirmDelete.busy}
+        onCancel={confirmDelete.cancel}
+        onContinue={confirmDelete.continueToStep2}
+        onConfirm={() => void confirmDelete.runConfirm(deleteCard)}
+      />
     </div>
   );
 }

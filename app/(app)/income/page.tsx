@@ -1,11 +1,37 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { CategoryPill } from "@/components/category-pill";
+import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
+import { SortableTh } from "@/components/sortable-th";
 import { formatBrl, parseBrlInput } from "@/lib/money";
 import { apiFetch } from "@/lib/session-client";
-import { BTN_PRIMARY_CLASS, INPUT_CLASS } from "@/lib/ui-classes";
+import {
+  BTN_DANGER_CLASS,
+  BTN_PRIMARY_CLASS,
+  INPUT_CLASS,
+  TABLE_CLASS,
+  TABLE_WRAP_CLASS,
+  TD_CLASS,
+  TH_CLASS,
+} from "@/lib/ui-classes";
+import { useConfirmDelete } from "@/lib/use-confirm-delete";
+import {
+  cmpNumber,
+  cmpText,
+  useTableSort,
+  type SortDir,
+} from "@/lib/use-table-sort";
 import { useTodayIso } from "@/lib/use-today-iso";
+
+type IncomeSortKey =
+  | "name"
+  | "category"
+  | "day"
+  | "method"
+  | "amount"
+  | "status";
 
 type LedgerEntry = {
   id: string;
@@ -14,12 +40,14 @@ type LedgerEntry = {
   description: string;
   method: string;
   status: string;
+  categoryId: string | null;
 };
 
-type Category = { id: string; name: string; kind: string };
+type Category = { id: string; name: string; kind: string; color: string };
 
 export default function IncomePage() {
   const today = useTodayIso();
+  const confirmDelete = useConfirmDelete<LedgerEntry>();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +63,53 @@ export default function IncomePage() {
   const incomeCategories = useMemo(
     () => categories.filter((c) => c.kind === "income"),
     [categories],
+  );
+
+  const categoryById = useMemo(() => {
+    const map = new Map<string, Category>();
+    for (const c of categories) map.set(c.id, c);
+    return map;
+  }, [categories]);
+
+  const compareIncome = useCallback(
+    (a: LedgerEntry, b: LedgerEntry, key: IncomeSortKey, dir: SortDir) => {
+      switch (key) {
+        case "name":
+          return cmpText(
+            a.description || "Income",
+            b.description || "Income",
+            dir,
+          );
+        case "category":
+          return cmpText(
+            categoryById.get(a.categoryId ?? "")?.name ?? "",
+            categoryById.get(b.categoryId ?? "")?.name ?? "",
+            dir,
+          );
+        case "day":
+          return cmpText(a.occursOn, b.occursOn, dir);
+        case "method":
+          return cmpText(a.method, b.method, dir);
+        case "amount":
+          return cmpNumber(a.amountCents, b.amountCents, dir);
+        case "status":
+          return cmpText(a.status, b.status, dir);
+        default:
+          return 0;
+      }
+    },
+    [categoryById],
+  );
+
+  const {
+    sorted: sortedEntries,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useTableSort<LedgerEntry, IncomeSortKey>(
+    entries,
+    "name",
+    compareIncome,
   );
 
   useEffect(() => {
@@ -54,15 +129,25 @@ export default function IncomePage() {
           setError((ledgerJson as { error?: string }).error ?? "Failed to load");
           return;
         }
-        setEntries(
-          (ledgerJson as LedgerEntry[]).sort((a, b) =>
-            b.occursOn.localeCompare(a.occursOn),
-          ),
-        );
+        setEntries(ledgerJson as LedgerEntry[]);
       })
       .catch(() => setError("Failed to load"))
       .finally(() => setLoading(false));
   }, []);
+
+  async function deleteLedgerEntry(entry: LedgerEntry) {
+    setError(null);
+    const res = await apiFetch(
+      `/api/ledger?id=${encodeURIComponent(entry.id)}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) {
+      const json = (await res.json()) as { error?: string };
+      setError(json.error ?? "Delete failed");
+      throw new Error(json.error ?? "Delete failed");
+    }
+    setEntries((prev) => prev.filter((row) => row.id !== entry.id));
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -160,25 +245,118 @@ export default function IncomePage() {
       ) : entries.length === 0 ? (
         <p className="text-muted">No income entries yet.</p>
       ) : (
-        <ul className="divide-y divide-border border border-border text-sm">
-          {entries.map((row) => (
-            <li
-              key={row.id}
-              className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3"
-            >
-              <div>
-                <span className="text-foreground">
-                  {row.description || "Income"}
-                </span>
-                <span className="ml-2 text-muted">{row.occursOn}</span>
-              </div>
-              <span className="tabular-nums text-neon-green">
-                {formatBrl(row.amountCents)}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className={TABLE_WRAP_CLASS}>
+          <table className={TABLE_CLASS}>
+            <thead>
+              <tr>
+                <SortableTh
+                  label="Day"
+                  column="day"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Name"
+                  column="name"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Category"
+                  column="category"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Method"
+                  column="method"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Status"
+                  column="status"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Amount"
+                  column="amount"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                  align="right"
+                />
+                <th className={`${TH_CLASS} text-right`}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedEntries.map((row) => {
+                const category = row.categoryId
+                  ? categoryById.get(row.categoryId)
+                  : undefined;
+                return (
+                <tr key={row.id}>
+                  <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
+                    {row.occursOn}
+                  </td>
+                  <td className={TD_CLASS}>{row.description || "Income"}</td>
+                  <td className={TD_CLASS}>
+                    {category ? (
+                      <CategoryPill name={category.name} color={category.color} />
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
+                  <td className={`${TD_CLASS} uppercase text-muted`}>{row.method}</td>
+                  <td className={TD_CLASS}>
+                    {row.status !== "confirmed" ? (
+                      <span className="text-neon-orange">{row.status}</span>
+                    ) : (
+                      <span className="text-muted">confirmed</span>
+                    )}
+                  </td>
+                  <td className={`${TD_CLASS} text-right tabular-nums text-neon-green`}>
+                    {formatBrl(row.amountCents)}
+                  </td>
+                  <td className={`${TD_CLASS} text-right`}>
+                    <button
+                      type="button"
+                      className={BTN_DANGER_CLASS}
+                      onClick={() =>
+                        confirmDelete.requestDelete(
+                          row,
+                          "Delete income",
+                          `${row.description || "Income"} · ${row.occursOn} · ${formatBrl(row.amountCents)}`,
+                        )
+                      }
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      <ConfirmDeleteModal
+        open={confirmDelete.open}
+        title={confirmDelete.pending?.title ?? "Delete"}
+        description={confirmDelete.pending?.description}
+        step={confirmDelete.step}
+        busy={confirmDelete.busy}
+        onCancel={confirmDelete.cancel}
+        onContinue={confirmDelete.continueToStep2}
+        onConfirm={() => void confirmDelete.runConfirm(deleteLedgerEntry)}
+      />
     </div>
   );
 }

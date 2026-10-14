@@ -1,11 +1,18 @@
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { installments, purchases } from "@/db/schema";
+import { creditCards, installments, purchases } from "@/db/schema";
 import {
   jsonError,
   jsonOk,
   readJson,
   unauthorizedIfNeeded,
 } from "@/lib/api";
+import {
+  cycleCloseDateFor,
+  parseIsoDate,
+  shiftCycleClose,
+  toIsoDate,
+} from "@/lib/dates";
 import { buildInstallments } from "@/lib/purchases";
 
 export async function POST(request: Request) {
@@ -15,17 +22,19 @@ export async function POST(request: Request) {
   const body = await readJson<{
     creditCardId?: string;
     merchant?: string;
+    description?: string;
     purchaseDate?: string;
     installmentCount?: number;
     amountPerInstallmentCents?: number;
     currentNumber?: number;
-    currentCycleCloseDate?: string;
     categoryId?: string | null;
     status?: "unconfirmed" | "confirmed";
   }>(request);
 
+  const description = (body.description ?? body.merchant)?.trim();
+
   if (!body.creditCardId) return jsonError("creditCardId is required");
-  if (!body.merchant?.trim()) return jsonError("merchant is required");
+  if (!description) return jsonError("description is required");
   if (!body.purchaseDate) return jsonError("purchaseDate is required");
   if (typeof body.installmentCount !== "number") {
     return jsonError("installmentCount is required");
@@ -33,16 +42,31 @@ export async function POST(request: Request) {
   if (typeof body.amountPerInstallmentCents !== "number") {
     return jsonError("amountPerInstallmentCents is required");
   }
-  if (!body.currentCycleCloseDate) {
-    return jsonError("currentCycleCloseDate is required");
-  }
+
+  const [card] = await db
+    .select()
+    .from(creditCards)
+    .where(eq(creditCards.id, body.creditCardId));
+  if (!card) return jsonError("Card not found", 404);
 
   const currentNumber = body.currentNumber ?? 1;
+  if (currentNumber < 1 || currentNumber > body.installmentCount) {
+    return jsonError("currentNumber must be between 1 and installmentCount");
+  }
+
+  const firstClose = cycleCloseDateFor(
+    parseIsoDate(body.purchaseDate),
+    card.cycleCloseDay,
+  );
+  const currentCycleCloseIso = toIsoDate(
+    shiftCycleClose(firstClose, currentNumber - 1),
+  );
+
   const built = buildInstallments({
     installmentCount: body.installmentCount,
     amountPerInstallmentCents: body.amountPerInstallmentCents,
     currentNumber,
-    currentCycleCloseIso: body.currentCycleCloseDate,
+    currentCycleCloseIso,
   });
 
   const status = body.status ?? "confirmed";
@@ -52,7 +76,7 @@ export async function POST(request: Request) {
       .insert(purchases)
       .values({
         creditCardId: body.creditCardId!,
-        merchant: body.merchant!.trim(),
+        merchant: description,
         purchaseDate: body.purchaseDate!,
         totalCents: built.totalCents,
         installmentCount: body.installmentCount!,

@@ -7,11 +7,6 @@ import {
   readJson,
   unauthorizedIfNeeded,
 } from "@/lib/api";
-import { toIsoDate } from "@/lib/dates";
-import {
-  cancelFutureMaterialized,
-  materializeRecurring,
-} from "@/lib/recurring";
 
 type RecurringBody = {
   id?: string;
@@ -72,7 +67,6 @@ export async function POST(request: Request) {
     .values(parsed.values)
     .returning();
 
-  await materializeRecurring();
   return jsonOk(created);
 }
 
@@ -100,11 +94,6 @@ export async function PUT(request: Request) {
     .returning();
 
   if (!updated) return jsonError("Rule not found", 404);
-
-  if (body.enabled === false) {
-    await cancelFutureMaterialized(body.id, toIsoDate(new Date()));
-  }
-  await materializeRecurring();
   return jsonOk(updated);
 }
 
@@ -115,7 +104,6 @@ export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return jsonError("id query parameter is required");
 
-  await cancelFutureMaterialized(id, toIsoDate(new Date()));
   await db.delete(recurringRules).where(eq(recurringRules.id, id));
   return jsonOk({ ok: true });
 }

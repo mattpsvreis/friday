@@ -14,6 +14,12 @@ import {
   paymentDueForCycle,
   toIsoDate,
 } from "@/lib/dates";
+import {
+  listEnabledRules,
+  purgeAutoMaterializedLedger,
+  sumRecurringCashExpenses,
+  sumRules,
+} from "@/lib/recurring";
 
 export type DashboardMonth = {
   year: number;
@@ -37,13 +43,13 @@ export function resolveDashboardMonth(
 }
 
 export async function getDashboardData(view: DashboardMonth, now = new Date()) {
+  await purgeAutoMaterializedLedger();
+
   const monthIndex = view.month - 1;
   const { start, end } = calendarMonthWindow(view.year, monthIndex);
   const startIso = toIsoDate(start);
   const endIso = toIsoDate(end);
 
-  // Card "open cycle" as of the viewed month (end of that month), or real today
-  // when viewing the current calendar month.
   const asOf =
     view.year === now.getUTCFullYear() && view.month === now.getUTCMonth() + 1
       ? now
@@ -52,6 +58,10 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
   const [snapshot] = await db.select().from(balanceSnapshots).limit(1);
   const spendable = snapshot?.spendableCents ?? 0;
   const saved = snapshot?.savedCents ?? 0;
+
+  const enabledRules = await listEnabledRules();
+  const recurringCash = sumRecurringCashExpenses(enabledRules);
+  const recurringIncome = sumRules(enabledRules, "income");
 
   const confirmedLedger = await db
     .select()
@@ -64,19 +74,11 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
       ),
     );
 
-  const incomes = confirmedLedger
+  const ledgerIncomes = confirmedLedger
     .filter((row) => row.direction === "income")
     .reduce((sum, row) => sum + row.amountCents, 0);
 
-  const recurringCash = confirmedLedger
-    .filter(
-      (row) =>
-        row.direction === "expense" &&
-        Boolean(row.recurringRuleId) &&
-        row.method !== "credit_card" &&
-        row.method !== "card_payment",
-    )
-    .reduce((sum, row) => sum + row.amountCents, 0);
+  const incomes = ledgerIncomes + recurringIncome;
 
   const cards = await db.select().from(creditCards);
   const confirmedPurchases = await db
@@ -112,7 +114,8 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     }
   }
 
-  const cashExpensesNoCardPay = confirmedLedger
+  // Manual / imported ledger cash expenses only (recurring comes from rules).
+  const oneTimeCash = confirmedLedger
     .filter(
       (row) =>
         row.direction === "expense" &&
@@ -121,21 +124,10 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     )
     .reduce((sum, row) => sum + row.amountCents, 0);
 
-  const oneTimeCashAdj = confirmedLedger
-    .filter(
-      (row) =>
-        row.direction === "expense" &&
-        !row.recurringRuleId &&
-        row.method !== "credit_card" &&
-        row.method !== "card_payment",
-    )
-    .reduce((sum, row) => sum + row.amountCents, 0);
-
-  const predictedTotal =
-    oneTimeCashAdj + recurringCash + installmentPaymentsDue;
+  const predictedTotal = oneTimeCash + recurringCash + installmentPaymentsDue;
 
   const expectedEnd =
-    spendable + incomes - cashExpensesNoCardPay - faturaPaymentsDue;
+    spendable + incomes - oneTimeCash - recurringCash - faturaPaymentsDue;
 
   const cardStats = cards.map((card) => {
     const remaining = confirmedInstallments
@@ -182,7 +174,7 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     incomesCents: incomes,
     predicted: {
       totalCents: predictedTotal,
-      oneTimeCashCents: oneTimeCashAdj,
+      oneTimeCashCents: oneTimeCash,
       recurringCashCents: recurringCash,
       installmentsCents: installmentPaymentsDue,
     },

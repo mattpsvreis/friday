@@ -1,11 +1,37 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { CategoryPill } from "@/components/category-pill";
+import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
+import { SortableTh } from "@/components/sortable-th";
 import { formatBrl, parseBrlInput } from "@/lib/money";
 import { apiFetch } from "@/lib/session-client";
-import { BTN_PRIMARY_CLASS, INPUT_CLASS } from "@/lib/ui-classes";
+import {
+  BTN_DANGER_CLASS,
+  BTN_PRIMARY_CLASS,
+  INPUT_CLASS,
+  TABLE_CLASS,
+  TABLE_WRAP_CLASS,
+  TD_CLASS,
+  TH_CLASS,
+} from "@/lib/ui-classes";
+import { useConfirmDelete } from "@/lib/use-confirm-delete";
+import {
+  cmpNumber,
+  cmpText,
+  useTableSort,
+  type SortDir,
+} from "@/lib/use-table-sort";
 import { useTodayIso } from "@/lib/use-today-iso";
+
+type ExpenseSortKey =
+  | "name"
+  | "category"
+  | "day"
+  | "method"
+  | "amount"
+  | "status";
 
 type LedgerEntry = {
   id: string;
@@ -19,7 +45,7 @@ type LedgerEntry = {
   creditCardId: string | null;
 };
 
-type Category = { id: string; name: string; kind: string };
+type Category = { id: string; name: string; kind: string; color: string };
 type Card = { id: string; label: string };
 
 const METHODS = [
@@ -33,6 +59,7 @@ const METHODS = [
 
 export default function ExpensesPage() {
   const today = useTodayIso();
+  const confirmDelete = useConfirmDelete<LedgerEntry>();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
@@ -50,12 +77,11 @@ export default function ExpensesPage() {
 
   const [purchase, setPurchase] = useState({
     creditCardId: "",
-    merchant: "",
+    description: "",
     purchaseDate: "",
     installmentCount: "1",
     amountPerInstallment: "",
     currentNumber: "1",
-    currentCycleCloseDate: "",
     categoryId: "",
   });
 
@@ -64,19 +90,56 @@ export default function ExpensesPage() {
     [categories],
   );
 
+  const categoryById = useMemo(() => {
+    const map = new Map<string, Category>();
+    for (const c of categories) map.set(c.id, c);
+    return map;
+  }, [categories]);
+
+  const compareExpenses = useCallback(
+    (a: LedgerEntry, b: LedgerEntry, key: ExpenseSortKey, dir: SortDir) => {
+      switch (key) {
+        case "name":
+          return cmpText(a.description || a.method, b.description || b.method, dir);
+        case "category":
+          return cmpText(
+            categoryById.get(a.categoryId ?? "")?.name ?? "",
+            categoryById.get(b.categoryId ?? "")?.name ?? "",
+            dir,
+          );
+        case "day":
+          return cmpText(a.occursOn, b.occursOn, dir);
+        case "method":
+          return cmpText(a.method, b.method, dir);
+        case "amount":
+          return cmpNumber(a.amountCents, b.amountCents, dir);
+        case "status":
+          return cmpText(a.status, b.status, dir);
+        default:
+          return 0;
+      }
+    },
+    [categoryById],
+  );
+
+  const {
+    sorted: sortedEntries,
+    sortKey,
+    sortDir,
+    toggle,
+  } = useTableSort<LedgerEntry, ExpenseSortKey>(
+    entries,
+    "name",
+    compareExpenses,
+  );
+
   useEffect(() => {
     if (!today) return;
     setExpense((prev) =>
       prev.occursOn ? prev : { ...prev, occursOn: today },
     );
     setPurchase((prev) =>
-      prev.purchaseDate
-        ? prev
-        : {
-            ...prev,
-            purchaseDate: today,
-            currentCycleCloseDate: today,
-          },
+      prev.purchaseDate ? prev : { ...prev, purchaseDate: today },
     );
   }, [today]);
 
@@ -94,11 +157,7 @@ export default function ExpensesPage() {
           setError((ledgerJson as { error?: string }).error ?? "Failed to load ledger");
           return;
         }
-        setEntries(
-          (ledgerJson as LedgerEntry[]).sort((a, b) =>
-            b.occursOn.localeCompare(a.occursOn),
-          ),
-        );
+        setEntries(ledgerJson as LedgerEntry[]);
         setCategories(catJson);
         setCards(cardJson);
       })
@@ -108,6 +167,20 @@ export default function ExpensesPage() {
   useEffect(() => {
     refreshLedger().finally(() => setLoading(false));
   }, []);
+
+  async function deleteLedgerEntry(entry: LedgerEntry) {
+    setError(null);
+    const res = await apiFetch(
+      `/api/ledger?id=${encodeURIComponent(entry.id)}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) {
+      const json = (await res.json()) as { error?: string };
+      setError(json.error ?? "Delete failed");
+      throw new Error(json.error ?? "Delete failed");
+    }
+    setEntries((prev) => prev.filter((row) => row.id !== entry.id));
+  }
 
   async function onAddExpense(e: FormEvent) {
     e.preventDefault();
@@ -142,12 +215,11 @@ export default function ExpensesPage() {
     setError(null);
     const body = {
       creditCardId: purchase.creditCardId,
-      merchant: purchase.merchant,
+      description: purchase.description,
       purchaseDate: purchase.purchaseDate,
       installmentCount: Number(purchase.installmentCount),
       amountPerInstallmentCents: parseBrlInput(purchase.amountPerInstallment),
       currentNumber: Number(purchase.currentNumber),
-      currentCycleCloseDate: purchase.currentCycleCloseDate,
       categoryId: purchase.categoryId || null,
       status: "confirmed" as const,
     };
@@ -162,7 +234,7 @@ export default function ExpensesPage() {
     }
     setPurchase((s) => ({
       ...s,
-      merchant: "",
+      description: "",
       amountPerInstallment: "",
     }));
     void refreshLedger();
@@ -289,11 +361,13 @@ export default function ExpensesPage() {
             </select>
           </label>
           <label className="block space-y-1">
-            <span className="text-sm text-muted">Merchant</span>
+            <span className="text-sm text-muted">Description</span>
             <input
               className={INPUT_CLASS}
-              value={purchase.merchant}
-              onChange={(e) => setPurchase({ ...purchase, merchant: e.target.value })}
+              value={purchase.description}
+              onChange={(e) =>
+                setPurchase({ ...purchase, description: e.target.value })
+              }
               required
             />
           </label>
@@ -349,18 +423,6 @@ export default function ExpensesPage() {
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-sm text-muted">Current cycle close date</span>
-            <input
-              type="date"
-              className={INPUT_CLASS}
-              value={purchase.currentCycleCloseDate}
-              onChange={(e) =>
-                setPurchase({ ...purchase, currentCycleCloseDate: e.target.value })
-              }
-              required
-            />
-          </label>
-          <label className="block space-y-1">
             <span className="text-sm text-muted">Category</span>
             <select
               className={INPUT_CLASS}
@@ -391,26 +453,118 @@ export default function ExpensesPage() {
       ) : entries.length === 0 ? (
         <p className="text-muted">No expenses recorded.</p>
       ) : (
-        <ul className="divide-y divide-border border border-border text-sm">
-          {entries.map((row) => (
-            <li key={row.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
-              <div>
-                <span className="text-foreground">
-                  {row.description || row.method}
-                </span>
-                <span className="ml-2 text-muted">{row.occursOn}</span>
-                <span className="ml-2 text-xs uppercase text-muted">{row.method}</span>
-                {row.status !== "confirmed" ? (
-                  <span className="ml-2 text-xs text-neon-orange">{row.status}</span>
-                ) : null}
-              </div>
-              <span className="tabular-nums text-neon-orange">
-                {formatBrl(row.amountCents)}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className={TABLE_WRAP_CLASS}>
+          <table className={TABLE_CLASS}>
+            <thead>
+              <tr>
+                <SortableTh
+                  label="Day"
+                  column="day"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Name"
+                  column="name"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Category"
+                  column="category"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Method"
+                  column="method"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Status"
+                  column="status"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                />
+                <SortableTh
+                  label="Amount"
+                  column="amount"
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggle}
+                  align="right"
+                />
+                <th className={`${TH_CLASS} text-right`}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedEntries.map((row) => {
+                const category = row.categoryId
+                  ? categoryById.get(row.categoryId)
+                  : undefined;
+                return (
+                <tr key={row.id}>
+                  <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
+                    {row.occursOn}
+                  </td>
+                  <td className={TD_CLASS}>{row.description || "—"}</td>
+                  <td className={TD_CLASS}>
+                    {category ? (
+                      <CategoryPill name={category.name} color={category.color} />
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
+                  <td className={`${TD_CLASS} uppercase text-muted`}>{row.method}</td>
+                  <td className={TD_CLASS}>
+                    {row.status !== "confirmed" ? (
+                      <span className="text-neon-orange">{row.status}</span>
+                    ) : (
+                      <span className="text-muted">confirmed</span>
+                    )}
+                  </td>
+                  <td className={`${TD_CLASS} text-right tabular-nums text-neon-orange`}>
+                    {formatBrl(row.amountCents)}
+                  </td>
+                  <td className={`${TD_CLASS} text-right`}>
+                    <button
+                      type="button"
+                      className={BTN_DANGER_CLASS}
+                      onClick={() =>
+                        confirmDelete.requestDelete(
+                          row,
+                          "Delete expense",
+                          `${row.description || row.method} · ${row.occursOn} · ${formatBrl(row.amountCents)}`,
+                        )
+                      }
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      <ConfirmDeleteModal
+        open={confirmDelete.open}
+        title={confirmDelete.pending?.title ?? "Delete"}
+        description={confirmDelete.pending?.description}
+        step={confirmDelete.step}
+        busy={confirmDelete.busy}
+        onCancel={confirmDelete.cancel}
+        onContinue={confirmDelete.continueToStep2}
+        onConfirm={() => void confirmDelete.runConfirm(deleteLedgerEntry)}
+      />
     </div>
   );
 }

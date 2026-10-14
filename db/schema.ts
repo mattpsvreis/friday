@@ -65,6 +65,7 @@ export const categories = pgTable("categories", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull().unique(),
   kind: entryDirectionEnum("kind").notNull().default("expense"),
+  color: text("color").notNull().default("#39ff14"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
