@@ -18,7 +18,6 @@ type PurchaseBody = {
   purchaseDate?: string;
   installmentCount?: number;
   totalCents?: number;
-  amountPerInstallmentCents?: number;
   categoryId?: string | null;
 };
 
@@ -30,8 +29,7 @@ type ParsedPurchase =
       description: string;
       purchaseDate: string;
       installmentCount: number;
-      totalCents?: number;
-      amountPerInstallmentCents?: number;
+      totalCents: number;
       categoryId: string | null;
     };
 
@@ -47,10 +45,7 @@ function parsePurchaseInput(body: PurchaseBody): ParsedPurchase {
   if (body.installmentCount < 1) {
     return { ok: false, error: "installmentCount must be at least 1" };
   }
-  if (
-    typeof body.totalCents !== "number" &&
-    typeof body.amountPerInstallmentCents !== "number"
-  ) {
+  if (typeof body.totalCents !== "number") {
     return { ok: false, error: "totalCents is required" };
   }
 
@@ -61,7 +56,6 @@ function parsePurchaseInput(body: PurchaseBody): ParsedPurchase {
     purchaseDate: body.purchaseDate,
     installmentCount: body.installmentCount,
     totalCents: body.totalCents,
-    amountPerInstallmentCents: body.amountPerInstallmentCents,
     categoryId: body.categoryId ?? null,
   };
 }
@@ -70,8 +64,7 @@ async function buildPurchaseSchedule(input: {
   creditCardId: string;
   purchaseDate: string;
   installmentCount: number;
-  totalCents?: number;
-  amountPerInstallmentCents?: number;
+  totalCents: number;
 }) {
   const [card] = await db
     .select()
@@ -88,7 +81,6 @@ async function buildPurchaseSchedule(input: {
   const built = buildInstallments({
     installmentCount: input.installmentCount,
     totalCents: input.totalCents,
-    amountPerInstallmentCents: input.amountPerInstallmentCents,
     currentNumber: 1,
     currentCycleCloseIso: firstCycleCloseIso,
   });

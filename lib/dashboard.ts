@@ -24,7 +24,6 @@ import { computeCardLimitUsages } from "@/lib/card-limits";
 import {
   listAllRules,
   listEnabledRules,
-  purgeAutoMaterializedLedger,
   sumRecurringCardPaymentsDueInWindow,
   sumRecurringCashExpenses,
   sumRules,
@@ -300,8 +299,6 @@ function monthMetrics(input: {
 }
 
 export async function getDashboardData(view: DashboardMonth, now = new Date()) {
-  await purgeAutoMaterializedLedger();
-
   const [snapshot] = await db.select().from(balanceSnapshots).limit(1);
   const spendable = snapshot?.spendableCents ?? 0;
   const saved = snapshot?.savedCents ?? 0;

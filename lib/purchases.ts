@@ -16,35 +16,14 @@ export function splitTotalAcrossInstallments(
 
 export function buildInstallments(input: {
   installmentCount: number;
-  /** Full purchase total in centavos (preferred for manual entry). */
-  totalCents?: number;
-  /** Per-installment amount (used by fatura import which already lists parcel values). */
-  amountPerInstallmentCents?: number;
+  totalCents: number;
   currentNumber: number;
   currentCycleCloseIso: string;
 }) {
-  const {
-    installmentCount,
-    currentNumber,
-    currentCycleCloseIso,
-  } = input;
+  const { installmentCount, totalCents, currentNumber, currentCycleCloseIso } =
+    input;
 
-  let amounts: number[];
-  let totalCents: number;
-
-  if (typeof input.totalCents === "number") {
-    totalCents = input.totalCents;
-    amounts = splitTotalAcrossInstallments(totalCents, installmentCount);
-  } else if (typeof input.amountPerInstallmentCents === "number") {
-    amounts = Array.from(
-      { length: installmentCount },
-      () => input.amountPerInstallmentCents!,
-    );
-    totalCents = input.amountPerInstallmentCents * installmentCount;
-  } else {
-    throw new Error("totalCents or amountPerInstallmentCents is required");
-  }
-
+  const amounts = splitTotalAcrossInstallments(totalCents, installmentCount);
   const currentClose = parseIsoDate(currentCycleCloseIso);
   const firstClose = shiftCycleClose(currentClose, -(currentNumber - 1));
 

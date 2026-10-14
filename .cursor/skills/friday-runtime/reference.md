@@ -1,10 +1,8 @@
 # Friday runtime reference
 
-These files are not in the repo yet. Create them only when the user asks for local startup. Follow this contract so the two boot scripts stay the same program.
+Files live at the repo root / `scripts/`. Keep `dev.bat` and `dev.sh` behavior identical.
 
 ## compose.yaml
-
-Place it at the repo root. Compose project directory is the repo root, so `docker compose` works without `-f`.
 
 ```yaml
 name: friday
@@ -36,16 +34,11 @@ volumes:
 
 Notes:
 
-- Project name `friday` keeps the volume and network from colliding with other Compose projects.
-- `env_file.required: true` fails fast when `.env` is missing. Do not fall back to inline passwords.
-- `$$POSTGRES_USER` and `$$POSTGRES_DB` are Compose escaping so the shell inside the container expands the real values.
-- The Postgres 18 image stores data under `/var/lib/postgresql/18/docker` and declares its volume at `/var/lib/postgresql`. Mount the named volume there. Mounting `/var/lib/postgresql/data` does not persist on this major version.
-- Do not add a finance schema, init SQL, or seed data to this file.
-- Change the image major only by editing `image`. Keep the tag explicit.
+- `env_file.required: true` fails fast without `.env`.
+- `$$POSTGRES_*` is Compose escaping for the healthcheck shell inside the container.
+- Postgres 18 volume mount is `/var/lib/postgresql`, not `/var/lib/postgresql/data`.
 
-## Env file
-
-`.env` stays gitignored. Expected keys when startup is implemented:
+## Env file (gitignored)
 
 ```
 POSTGRES_USER=
@@ -54,78 +47,26 @@ POSTGRES_DB=
 DATABASE_URL=postgresql://USER:PASSWORD@127.0.0.1:5432/DB
 ```
 
-`DATABASE_URL` is for the Next.js app (Drizzle). It must use the same user, password, and database as the three `POSTGRES_*` keys. Never echo `.env` from the boot scripts.
+`DATABASE_URL` must match the three `POSTGRES_*` values. Used by `db/index.ts` and `drizzle.config.ts`.
 
-## scripts/dev.sh
+## Boot scripts
 
-```sh
-#!/usr/bin/env sh
-set -eu
-cd "$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+- `scripts/dev.sh` — POSIX `sh`, `set -eu`, same checks as bat.
+- `scripts/dev.bat` — `cd /d "%~dp0\.."`, same order: Docker → pnpm → node_modules → compose → `pnpm dev`.
 
-if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-  echo "Docker is not running." >&2
-  exit 1
-fi
-if ! command -v pnpm >/dev/null 2>&1; then
-  echo "pnpm is not installed." >&2
-  exit 1
-fi
-if [ ! -d node_modules ]; then
-  echo "Dependencies are missing. Run pnpm install." >&2
-  exit 1
-fi
+Unix: keep `chmod +x scripts/dev.sh` when recreating the file.
 
-docker compose up -d --wait
-echo "Postgres is up. Starting Next.js."
-pnpm dev
-echo "Next.js stopped. Postgres is still running. Stop it with: docker compose stop"
-```
-
-Use `sh`, not bash-only syntax. After creating the file, it needs the executable bit on Unix (`chmod +x scripts/dev.sh`). Windows does not.
-
-## scripts/dev.bat
-
-```bat
-@echo off
-setlocal
-cd /d "%~dp0\.."
-
-docker info >nul 2>&1
-if errorlevel 1 (
-  echo Docker is not running. 1>&2
-  exit /b 1
-)
-where pnpm >nul 2>&1
-if errorlevel 1 (
-  echo pnpm is not installed. 1>&2
-  exit /b 1
-)
-if not exist node_modules\ (
-  echo Dependencies are missing. Run pnpm install. 1>&2
-  exit /b 1
-)
-
-docker compose up -d --wait
-if errorlevel 1 exit /b 1
-echo Postgres is up. Starting Next.js.
-pnpm dev
-echo Next.js stopped. Postgres is still running. Stop it with: docker compose stop
-```
-
-`cd /d "%~dp0\.."` is what makes a double-click start from the repo root. Keep the checks and the Compose command in the same order as `scripts/dev.sh`.
-
-## Commands after the files exist
+## Everyday commands
 
 | Intent | Command |
 | --- | --- |
-| Boot database and app | `scripts/dev.bat` or `scripts/dev.sh` |
-| Boot database only | `docker compose up -d --wait` |
-| Stop database, keep data | `docker compose stop` |
-| Stop database and delete data | `docker compose down -v` — only when the user explicitly wants the volume removed |
+| Boot DB + app | `scripts/dev.bat` / `scripts/dev.sh` |
+| DB only | `docker compose up -d --wait` |
+| Stop DB, keep data | `docker compose stop` |
+| Wipe DB volume | `docker compose down -v` (only when user asks) |
+| Push schema | `pnpm db:push` |
+| App only (DB already up) | `pnpm dev` |
 
-App-only work that does not need Postgres can still use `pnpm dev`. Once the app depends on the database, prefer the boot script so the database is not forgotten.
+## Related
 
-## Related skills
-
-Domain model, dashboard math, import, auth, and UI live in `friday-architecture`.
+Domain: `friday-architecture`. Toolchain: `friday-repo`.

@@ -1,37 +1,40 @@
 ---
 name: friday-architecture
 description: >-
-  Friday personal finance domain and UI: balance snapshots, card-cycle
-  installments, confirmed-only projections, recurrings, sessionStorage
-  password lock, neon dark theme, and fixed left sidebar. Use when changing
-  finance models, dashboard math, auth, routes, or visual/navigation patterns.
+  Friday personal finance domain: BRL centavos, fatura close−1 attribution,
+  balance snapshots, installments vs card ledger, recurrings as templates,
+  confirmed-only math, session auth, expense mix, payment methods. Use when
+  changing schema, dashboard math, ledger/purchases/recurring APIs, auth,
+  categories, cards, or finance rules.
 ---
 
 # Friday architecture
 
-Single-user BRL personal finance app on Next.js + Postgres.
+Single-user BRL personal finance app on Next.js + Postgres (Drizzle).
 
 ## Locked domain rules
 
-- **Balances:** Pure snapshots (`spendable` / `saved`). Never auto-mutated. Edited from Transactions.
+- **Balances:** Pure snapshots (`spendable` / `saved`). Never auto-mutated. Edited on Transactions.
 - **Projections:** Confirmed rows only.
-- **Credit cards:** Belong to fatura cycles (`cycle_close_day`, `payment_due_day`). One `purchases` row; `installments` allocated automatically.
-- **Expected cash:** `spendable + incomes_in_window − cash_expenses_in_window − fatura_payments_due_in_window`.
-- **Dashboard window:** Full calendar month (1st → last day). User picks the viewed month on the Dashboard. Charts cover viewed month −3 … +3.
-- **Cash vs card:** PIX/cash/other hit cash on `occurs_on`. Card purchases and credit-card ledger rows hit the fatura cycle. Expense math cuts on each card’s **cycle close day** (e.g. the 4th) and budgets that cycle in **close-month − 1** (close Nov 4 → October). So a charge on Oct 2 closes Oct 4 (September budget); Oct 5–Nov 4 closes Nov 4 (October budget).
-- **Recurring:** Templates only (ON/OFF). Never create ledger rows. Cash recurrings sum into income / recurring cash spend. Credit-card recurrings hit card limit (open fatura) and card bill due for the viewed month.
-- **Categories:** User-defined labels with a `#RRGGBB` color.
-- **Auth:** One password (argon2). Session token in `sessionStorage` (`friday_session`). Closing the browser forces unlock again.
-- **No import/review queue:** Manual entry and confirmed-only writes. PDF import / unconfirmed review were removed.
+- **Credit cards:** Fatura cycles (`cycle_close_day`, `payment_due_day`). One `purchases` row; `installments` allocated automatically.
+- **Expected cash:** `spendable + incomes − one_time_cash − recurring_cash − fatura_payments_due` (fatura uses close−1 attribution).
+- **Dashboard window:** Full calendar month (UTC). User picks month on Dashboard. Charts: viewed month −3 … +3.
+- **Cash vs card:** PIX/cash/transfer/other hit cash on `occurs_on`. Card purchases (parcels) and credit-card ledger rows hit the fatura cycle. Cut on each card’s **cycle close day**; budget that cycle in **close-month − 1** (close Nov 4 → October). Charge Oct 2 → close Oct 4 → September; Oct 5–Nov 4 → close Nov 4 → October.
+- **Expense mix (Dashboard):**
+  - **Recurring** — ON cash + card templates (card uses close−1).
+  - **One-timers** — cash ledger expenses + one-shot credit-card ledger (not parcels).
+  - **Installments** — purchase parcels only.
+- **Recurring:** Templates only (ON/OFF). Never materialize ledger rows. Cash recurrings → income / recurring spend. Card recurrings → open fatura limit + bill due.
+- **Categories:** User labels + `#RRGGBB`. Kind `income` | `expense`.
+- **Payment methods (DB enum):** `pix`, `cash`, `credit_card`, `transfer`, `other`, legacy `card_payment`. UI labels/selectors: `lib/payment-methods.ts`. Do not offer `card_payment` in new selectors.
+- **Auth:** One password (argon2). Bearer token in `sessionStorage` (`friday_session`). Closing the browser forces unlock again.
+- **Manual entry only:** Confirmed writes. No bank/PDF import.
 
-## Visual system
+## Money and dates
 
-- Dark only: near-black bg, neon green primary, neon orange secondary.
-- Fonts: Comfortaa (UI), Source Serif 4 (titles) via `next/font/google`.
-- No light theme / no `prefers-color-scheme` light branch.
-- Fixed **left sidebar** nav (icons via Lucide); mobile uses the same drawer as overlay. Unlock is full-screen outside the shell.
-- Icons on chrome only (sidebar, KPI cards). No icons on data rows.
-- ON/OFF status uses filled green/red pills.
+- Money: integer **centavos**.
+- Calendar dates: `YYYY-MM-DD`.
+- API month: `year` + `month` (1–12).
 
 ## Key paths
 
@@ -40,18 +43,20 @@ Single-user BRL personal finance app on Next.js + Postgres.
 | Schema | `db/schema.ts` |
 | DB client | `db/index.ts` |
 | Dashboard math | `lib/dashboard.ts` |
-| Installment builder | `lib/purchases.ts` |
+| Card limits | `lib/card-limits.ts` |
+| Installments | `lib/purchases.ts` |
 | Recurring | `lib/recurring.ts` |
-| Auth | `lib/auth.ts` |
-| Shell | `components/app-shell.tsx` |
+| Payment labels | `lib/payment-methods.ts` |
+| Auth | `lib/auth.ts`, `lib/session-client.ts` |
+| Shell / gate | `components/app-shell.tsx`, `components/auth-gate.tsx` |
+| Dashboard UI | `components/dashboard-view.tsx` |
 | App routes | `app/(app)/…` |
 | Unlock | `app/unlock/page.tsx` |
+| APIs | `app/api/…` |
 
-## Money and dates
+## Visual / UI chrome
 
-- Store money as integer **centavos**.
-- Store calendar dates as `YYYY-MM-DD`.
-- Dashboard month is selected in the UI; API uses `year` + `month` (1–12).
+Neon dark theme, glass panels, ScrollArea, charts: see `friday-ui`. Repo toolchain: `friday-repo`. Boot: `friday-runtime`.
 
 ## Further detail
 

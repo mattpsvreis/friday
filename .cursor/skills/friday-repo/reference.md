@@ -3,11 +3,11 @@
 ## package.json
 
 - `name`: `Friday`
-- `version`: `0.0.1`
+- `version`: follows semver in repo (see package.json)
 - `private`: `true`
-- No `packageManager` field and no `engines` field. `.nvmrc` is the Node pin. pnpm is still mandatory.
+- No `packageManager` / `engines` fields; `.nvmrc` pins Node **24**.
 
-Scripts:
+### Scripts
 
 | Script | Runs |
 | --- | --- |
@@ -15,103 +15,79 @@ Scripts:
 | `build` | `next build` |
 | `start` | `next start` |
 | `lint` | `eslint` |
+| `db:generate` | `drizzle-kit generate` |
+| `db:migrate` | `drizzle-kit migrate` |
+| `db:push` | `drizzle-kit push` |
 
-Runtime dependencies:
+### Runtime dependencies (core)
 
-| Package | Version |
+| Package | Role |
 | --- | --- |
-| `next` | `16.4.0` |
-| `react` | `19.3.0` |
-| `react-dom` | `19.3.0` |
+| `next` `16.4.0` | App framework |
+| `react` / `react-dom` `19.x` | UI |
+| `drizzle-orm` + `postgres` | DB |
+| `argon2` | Password hashing |
+| `recharts` | Dashboard charts |
+| `lucide-react` | Nav / KPI icons |
+| `zod` | Validation where used |
 
-Dev dependencies:
+### Dev dependencies (core)
 
-| Package | Version |
-| --- | --- |
-| `@tailwindcss/turbopack` | `^4` |
-| `@types/node` | `^20` |
-| `@types/react` | `^19` |
-| `@types/react-dom` | `^19` |
-| `eslint` | `^9` |
-| `eslint-config-next` | `16.4.0` |
-| `tailwindcss` | `^4` |
-| `typescript` | `^5` |
+`@tailwindcss/turbopack`, `tailwindcss` ^4, `typescript`, `eslint` + `eslint-config-next`, `drizzle-kit`, `dotenv`, `@types/*`.
 
 ## next.config.ts
 
 ```ts
-const nextConfig: NextConfig = {
-  cacheComponents: true,
-  partialPrefetching: true,
-  turbopack: {
-    rules: {
-      "*.css": {
-        loaders: ["@tailwindcss/turbopack"],
-        as: "*.css",
-      },
+cacheComponents: true,
+partialPrefetching: true,
+turbopack: {
+  rules: {
+    "*.css": {
+      loaders: ["@tailwindcss/turbopack"],
+      as: "*.css",
     },
   },
-};
+},
 ```
 
-`@tailwindcss/turbopack` must stay installed while that loader rule exists. Removing either side alone breaks CSS.
+Keep `@tailwindcss/turbopack` installed while that rule exists.
 
 ## TypeScript
 
-`tsconfig.json`:
+`tsconfig.json`: `strict`, `moduleResolution: bundler`, `jsx: react-jsx`, paths `@/*` → `./*`.  
+`next-env.d.ts` is gitignored / generated — do not hand-edit.
 
-- `target`: `ES2017`
-- `lib`: `dom`, `dom.iterable`, `esnext`
-- `strict`: `true`
-- `noEmit`: `true`
-- `module`: `esnext`
-- `moduleResolution`: `bundler`
-- `jsx`: `react-jsx`
-- `incremental`: `true`
-- Next TypeScript plugin enabled
-- `paths`: `@/*` → `./*`
-- `include`: `next-env.d.ts`, `**/*.ts`, `**/*.tsx`, `**/*.mts`, `.next/types/**/*.ts`, `.next/dev/types/**/*.ts`
-- `exclude`: `node_modules`
+## Root layout
 
-`next-env.d.ts` is gitignored and generated. Do not commit it. Do not hand-edit it to fix a type error.
+- Fonts: Comfortaa (`--font-comfortaa` / sans), Source Serif 4 (`--font-source-serif` / display titles).
+- Metadata title `Friday`, description personal finance.
+- `CurrencyBackground` behind content (`z-10` wrapper for pages).
 
-## Root layout and home page
+## globals.css
 
-`app/layout.tsx` loads Geist Sans and Geist Mono with `next/font/google`, exposes them as `--font-geist-sans` and `--font-geist-mono`, and sets `lang="en"`. Metadata title and description are still the create-next-app defaults.
+- Neon tokens: `--neon-green` `#39ff14`, `--neon-orange` `#ff6b00`, surfaces, glass mixes.
+- `.glass-panel` / `.glass-panel-strong` for frosted panels.
+- `.friday-scroll-hide` for native scrollbar suppression inside `ScrollArea`.
+- Page `html` scrollbar themed best-effort.
 
-`app/page.tsx` is the starter marketing page. It imports images from `public/` through `next/image` (`/next.svg`, `/vercel.svg`). `public/` also contains `file.svg` and `window.svg`.
+## Shared UI classes (`lib/ui-classes.ts`)
 
-## Tailwind entry
-
-`app/globals.css`:
-
-- `@import "tailwindcss";`
-- `:root` tokens `--background` and `--foreground`, swapped under `prefers-color-scheme: dark`
-- `@theme inline` maps those tokens to `--color-background` and `--color-foreground`, and maps the Geist variables to `--font-sans` and `--font-mono`
-- `body` sets background, color, and a fallback `font-family` of Arial, Helvetica, sans-serif
-
-Dark mode follows the OS preference. There is no `dark` class toggle.
-
-## ESLint
-
-`eslint.config.mjs` uses ESLint's flat config. It spreads `eslint-config-next/core-web-vitals` and `eslint-config-next/typescript`, then ignores `.next/**`, `out/**`, `build/**`, and `next-env.d.ts`.
-
-Lint with `pnpm lint`. There is no separate `tsc` script. A production typecheck is `pnpm build`.
+`INPUT_CLASS`, `BTN_*`, `GLASS_PANEL_CLASS`, `TABLE_WRAP_CLASS`, `TABLE_CLASS`, `TH_*`, `TD_CLASS`. Prefer these over one-off duplicates.
 
 ## pnpm allowBuilds
 
-`unrs-resolver` is a native dependency pulled in by the ESLint toolchain. `allowBuilds.unrs-resolver: true` is what lets pnpm run its install script. Deleting that block causes install failures or a broken lint resolver. Do not replace it with a global "allow every build script" setting.
+`pnpm-workspace.yaml` may allow `unrs-resolver` builds for the ESLint toolchain. Do not widen `allowBuilds` without asking.
 
-## Files agents should not treat as source
+## Files agents should not treat as source of truth for product docs
 
 | Path | Role |
 | --- | --- |
-| `pnpm-lock.yaml` | Lockfile. Update only through pnpm. |
-| `.nvmrc` | Contents are `24`. |
-| `.gitignore` | Ignores `node_modules`, `.next`, `out`, `build`, `.env*`, `next-env.d.ts`, `*.tsbuildinfo`. |
-| `README.md` | create-next-app text. It lists npm, yarn, and bun. Those are stale. Do not follow them, and do not rewrite the README unless the user asks. |
-| `AGENTS.md` | Next.js agent-rules block, regenerated by `next dev`. |
+| `pnpm-lock.yaml` | Lockfile via pnpm only |
+| `.nvmrc` | `24` |
+| `.gitignore` | Ignores `node_modules`, `.next`, `.env*`, etc. |
+| `AGENTS.md` | Regenerated Next agent rules |
+| `README.md` | Human onboarding — keep in sync when setup/stack changes |
 
-## What is absent on purpose
+## What exists
 
-No database client, no env example, no Compose file, no boot script, no test runner, no `src/` tree. Those stay absent until the user asks. Startup and Postgres belong to the `friday-runtime` skill.
+Compose, boot scripts, Drizzle schema, full App Router product UI. See `friday-runtime` and `friday-architecture`.
