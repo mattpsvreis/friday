@@ -1,27 +1,35 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
   balanceSnapshots,
+  categories,
   creditCards,
   installments,
   ledgerEntries,
   purchases,
+  recurringRules,
 } from "@/db/schema";
 import {
   calendarMonthWindow,
+  clampDay,
+  cycleCloseDateFor,
+  dateWithDay,
   inInclusiveRange,
   openCycleCloseDate,
   parseIsoDate,
   paymentDueForCycle,
+  shiftYearMonth,
   toIsoDate,
 } from "@/lib/dates";
 import {
+  listAllRules,
   listEnabledRules,
   purgeAutoMaterializedLedger,
   sumRecurringCardOnOpenFatura,
   sumRecurringCardPaymentsDueInWindow,
   sumRecurringCashExpenses,
   sumRules,
+  type RecurringRuleRow,
 } from "@/lib/recurring";
 
 export type DashboardMonth = {
@@ -29,6 +37,43 @@ export type DashboardMonth = {
   /** 1–12 */
   month: number;
 };
+
+export type CategorySlice = {
+  categoryId: string | null;
+  name: string;
+  color: string;
+  cents: number;
+};
+
+export type MonthSeriesPoint = {
+  year: number;
+  month: number;
+  label: string;
+  incomeCents: number;
+  expenseCents: number;
+  byCategory: CategorySlice[];
+};
+
+const UNCATEGORIZED = {
+  categoryId: null as string | null,
+  name: "Uncategorized",
+  color: "#6b7280",
+};
+
+const MONTH_LABELS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 export function resolveDashboardMonth(
   input: Partial<DashboardMonth> | undefined,
@@ -45,43 +90,188 @@ export function resolveDashboardMonth(
   return { year, month };
 }
 
-export async function getDashboardData(view: DashboardMonth, now = new Date()) {
-  await purgeAutoMaterializedLedger();
+type CardRow = typeof creditCards.$inferSelect;
+type PurchaseRow = typeof purchases.$inferSelect;
+type InstallmentRow = typeof installments.$inferSelect;
+type LedgerRow = typeof ledgerEntries.$inferSelect;
+type CategoryRow = typeof categories.$inferSelect;
+type RuleRow = typeof recurringRules.$inferSelect;
 
-  const monthIndex = view.month - 1;
-  const { start, end } = calendarMonthWindow(view.year, monthIndex);
+function addCategoryCents(
+  map: Map<string, CategorySlice>,
+  categoryId: string | null | undefined,
+  cents: number,
+  categoryById: Map<string, CategoryRow>,
+) {
+  if (cents === 0) return;
+  const key = categoryId ?? "__none__";
+  const existing = map.get(key);
+  if (existing) {
+    existing.cents += cents;
+    return;
+  }
+  if (categoryId) {
+    const cat = categoryById.get(categoryId);
+    map.set(key, {
+      categoryId,
+      name: cat?.name ?? "Uncategorized",
+      color: cat?.color ?? UNCATEGORIZED.color,
+      cents,
+    });
+    return;
+  }
+  map.set(key, { ...UNCATEGORIZED, cents });
+}
+
+function monthMetrics(input: {
+  year: number;
+  month: number;
+  enabledRules: RuleRow[];
+  cards: CardRow[];
+  cardsById: Map<string, CardRow>;
+  confirmedPurchases: PurchaseRow[];
+  confirmedInstallments: InstallmentRow[];
+  allConfirmedLedger: LedgerRow[];
+  categoryById: Map<string, CategoryRow>;
+}) {
+  const monthIndex = input.month - 1;
+  const { start, end } = calendarMonthWindow(input.year, monthIndex);
   const startIso = toIsoDate(start);
   const endIso = toIsoDate(end);
 
-  const asOf =
-    view.year === now.getUTCFullYear() && view.month === now.getUTCMonth() + 1
-      ? now
-      : end;
+  const ledgerInMonth = input.allConfirmedLedger.filter(
+    (row) => row.occursOn >= startIso && row.occursOn <= endIso,
+  );
+
+  const ledgerIncomes = ledgerInMonth
+    .filter((row) => row.direction === "income")
+    .reduce((sum, row) => sum + row.amountCents, 0);
+
+  const recurringIncome = sumRules(input.enabledRules, "income");
+  const incomesCents = ledgerIncomes + recurringIncome;
+
+  const recurringCash = sumRecurringCashExpenses(input.enabledRules);
+
+  let installmentPaymentsDue = 0;
+  const byCategory = new Map<string, CategorySlice>();
+
+  for (const card of input.cards) {
+    for (const row of input.confirmedInstallments) {
+      const purchase = input.confirmedPurchases.find(
+        (p) => p.id === row.purchaseId,
+      );
+      if (!purchase || purchase.creditCardId !== card.id) continue;
+      const due = paymentDueForCycle(
+        parseIsoDate(row.cycleCloseDate),
+        card.paymentDueDay,
+      );
+      if (!inInclusiveRange(due, start, end)) continue;
+      installmentPaymentsDue += row.amountCents;
+      addCategoryCents(
+        byCategory,
+        purchase.categoryId,
+        row.amountCents,
+        input.categoryById,
+      );
+    }
+  }
+
+  const recurringCardDue = sumRecurringCardPaymentsDueInWindow(
+    input.enabledRules as RecurringRuleRow[],
+    input.cardsById,
+    start,
+    end,
+  );
+  installmentPaymentsDue += recurringCardDue;
+
+  for (const rule of input.enabledRules) {
+    if (rule.direction !== "expense") continue;
+    if (rule.method === "credit_card" || rule.method === "card_payment") {
+      const card = rule.creditCardId
+        ? input.cardsById.get(rule.creditCardId)
+        : undefined;
+      if (!card) continue;
+      let dueInWindow = false;
+      for (const delta of [0, -1] as const) {
+        const shifted = shiftYearMonth(input.year, monthIndex, delta);
+        const charge = dateWithDay(
+          shifted.year,
+          shifted.monthIndex,
+          clampDay(shifted.year, shifted.monthIndex, rule.dayOfMonth),
+        );
+        const close = cycleCloseDateFor(charge, card.cycleCloseDay);
+        const due = paymentDueForCycle(close, card.paymentDueDay);
+        if (inInclusiveRange(due, start, end)) {
+          dueInWindow = true;
+          break;
+        }
+      }
+      if (dueInWindow) {
+        addCategoryCents(
+          byCategory,
+          rule.categoryId,
+          rule.amountCents,
+          input.categoryById,
+        );
+      }
+      continue;
+    }
+    addCategoryCents(
+      byCategory,
+      rule.categoryId,
+      rule.amountCents,
+      input.categoryById,
+    );
+  }
+
+  const oneTimeCash = ledgerInMonth
+    .filter(
+      (row) =>
+        row.direction === "expense" &&
+        row.method !== "credit_card" &&
+        row.method !== "card_payment",
+    )
+    .reduce((sum, row) => sum + row.amountCents, 0);
+
+  for (const row of ledgerInMonth) {
+    if (row.direction !== "expense") continue;
+    if (row.method === "credit_card" || row.method === "card_payment") continue;
+    addCategoryCents(
+      byCategory,
+      row.categoryId,
+      row.amountCents,
+      input.categoryById,
+    );
+  }
+
+  const expenseCents = oneTimeCash + recurringCash + installmentPaymentsDue;
+
+  return {
+    start,
+    end,
+    startIso,
+    endIso,
+    incomesCents,
+    oneTimeCashCents: oneTimeCash,
+    recurringCashCents: recurringCash,
+    installmentsCents: installmentPaymentsDue,
+    faturaPaymentsDueCents: installmentPaymentsDue,
+    expenseCents,
+    byCategory: [...byCategory.values()].sort((a, b) => b.cents - a.cents),
+  };
+}
+
+export async function getDashboardData(view: DashboardMonth, now = new Date()) {
+  await purgeAutoMaterializedLedger();
 
   const [snapshot] = await db.select().from(balanceSnapshots).limit(1);
   const spendable = snapshot?.spendableCents ?? 0;
   const saved = snapshot?.savedCents ?? 0;
 
   const enabledRules = await listEnabledRules();
-  const recurringCash = sumRecurringCashExpenses(enabledRules);
-  const recurringIncome = sumRules(enabledRules, "income");
-
-  const confirmedLedger = await db
-    .select()
-    .from(ledgerEntries)
-    .where(
-      and(
-        eq(ledgerEntries.status, "confirmed"),
-        gte(ledgerEntries.occursOn, startIso),
-        lte(ledgerEntries.occursOn, endIso),
-      ),
-    );
-
-  const ledgerIncomes = confirmedLedger
-    .filter((row) => row.direction === "income")
-    .reduce((sum, row) => sum + row.amountCents, 0);
-
-  const incomes = ledgerIncomes + recurringIncome;
+  const allRules = await listAllRules();
+  const categoryRows = await db.select().from(categories);
+  const categoryById = new Map(categoryRows.map((c) => [c.id, c]));
 
   const cards = await db.select().from(creditCards);
   const cardsById = new Map(cards.map((card) => [card.id, card]));
@@ -96,52 +286,38 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     purchaseIds.has(row.purchaseId),
   );
 
-  let installmentPaymentsDue = 0;
-  let faturaPaymentsDue = 0;
+  const allConfirmedLedger = await db
+    .select()
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.status, "confirmed"));
 
-  for (const card of cards) {
-    const dueAmounts = new Map<string, number>();
-    for (const row of confirmedInstallments) {
-      const purchase = confirmedPurchases.find((p) => p.id === row.purchaseId);
-      if (!purchase || purchase.creditCardId !== card.id) continue;
-      const due = paymentDueForCycle(
-        parseIsoDate(row.cycleCloseDate),
-        card.paymentDueDay,
-      );
-      if (!inInclusiveRange(due, start, end)) continue;
-      const key = toIsoDate(due);
-      dueAmounts.set(key, (dueAmounts.get(key) ?? 0) + row.amountCents);
-      installmentPaymentsDue += row.amountCents;
-    }
-
-    for (const amount of dueAmounts.values()) {
-      faturaPaymentsDue += amount;
-    }
-  }
-
-  const recurringCardDue = sumRecurringCardPaymentsDueInWindow(
+  const shared = {
     enabledRules,
+    cards,
     cardsById,
-    start,
-    end,
-  );
-  installmentPaymentsDue += recurringCardDue;
-  faturaPaymentsDue += recurringCardDue;
+    confirmedPurchases,
+    confirmedInstallments,
+    allConfirmedLedger,
+    categoryById,
+  };
 
-  // Manual / imported ledger cash expenses only (recurring comes from rules).
-  const oneTimeCash = confirmedLedger
-    .filter(
-      (row) =>
-        row.direction === "expense" &&
-        row.method !== "credit_card" &&
-        row.method !== "card_payment",
-    )
-    .reduce((sum, row) => sum + row.amountCents, 0);
+  const current = monthMetrics({
+    year: view.year,
+    month: view.month,
+    ...shared,
+  });
 
-  const predictedTotal = oneTimeCash + recurringCash + installmentPaymentsDue;
+  const asOf =
+    view.year === now.getUTCFullYear() && view.month === now.getUTCMonth() + 1
+      ? now
+      : current.end;
 
   const expectedEnd =
-    spendable + incomes - oneTimeCash - recurringCash - faturaPaymentsDue;
+    spendable +
+    current.incomesCents -
+    current.oneTimeCashCents -
+    current.recurringCashCents -
+    current.faturaPaymentsDueCents;
 
   const cardStats = cards.map((card) => {
     const openClose = openCycleCloseDate(asOf, card.cycleCloseDay);
@@ -174,24 +350,113 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     };
   });
 
+  const series: MonthSeriesPoint[] = [];
+  for (let delta = -3; delta <= 3; delta++) {
+    const shifted = shiftYearMonth(view.year, view.month - 1, delta);
+    const point = monthMetrics({
+      year: shifted.year,
+      month: shifted.monthIndex + 1,
+      ...shared,
+    });
+    series.push({
+      year: shifted.year,
+      month: shifted.monthIndex + 1,
+      label: MONTH_LABELS[shifted.monthIndex] ?? String(shifted.monthIndex + 1),
+      incomeCents: point.incomesCents,
+      expenseCents: point.expenseCents,
+      byCategory: point.byCategory,
+    });
+  }
+
+  const recentLedger = [...allConfirmedLedger]
+    .sort((a, b) => b.occursOn.localeCompare(a.occursOn))
+    .slice(0, 12)
+    .map((row) => ({
+      id: row.id,
+      kind: "ledger" as const,
+      date: row.occursOn,
+      name: row.description || row.method,
+      direction: row.direction,
+      method: row.method,
+      amountCents: row.amountCents,
+      categoryId: row.categoryId,
+      creditCardId: row.creditCardId,
+    }));
+
+  const recentPurchases = [...confirmedPurchases]
+    .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))
+    .slice(0, 12)
+    .map((row) => ({
+      id: row.id,
+      kind: "purchase" as const,
+      date: row.purchaseDate,
+      name: row.merchant,
+      direction: "expense" as const,
+      method: "credit_card",
+      amountCents: row.totalCents,
+      categoryId: row.categoryId,
+      creditCardId: row.creditCardId,
+    }));
+
+  const recentTransactions = [...recentLedger, ...recentPurchases]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 8)
+    .map((row) => {
+      const cat = row.categoryId ? categoryById.get(row.categoryId) : undefined;
+      const card = row.creditCardId
+        ? cardsById.get(row.creditCardId)
+        : undefined;
+      return {
+        ...row,
+        categoryName: cat?.name ?? null,
+        categoryColor: cat?.color ?? null,
+        cardLabel: card?.label ?? null,
+      };
+    });
+
+  const recurrings = [...allRules]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((rule) => {
+      const cat = rule.categoryId
+        ? categoryById.get(rule.categoryId)
+        : undefined;
+      return {
+        id: rule.id,
+        name: rule.name,
+        direction: rule.direction,
+        amountCents: rule.amountCents,
+        dayOfMonth: rule.dayOfMonth,
+        enabled: rule.enabled,
+        method: rule.method,
+        categoryId: rule.categoryId,
+        categoryName: cat?.name ?? null,
+        categoryColor: cat?.color ?? null,
+      };
+    });
+
   return {
     window: {
-      start: startIso,
-      end: endIso,
+      start: current.startIso,
+      end: current.endIso,
       year: view.year,
       month: view.month,
     },
     spendableCents: spendable,
     savedCents: saved,
-    incomesCents: incomes,
+    incomesCents: current.incomesCents,
+    expenseCents: current.expenseCents,
     predicted: {
-      totalCents: predictedTotal,
-      oneTimeCashCents: oneTimeCash,
-      recurringCashCents: recurringCash,
-      installmentsCents: installmentPaymentsDue,
+      totalCents: current.expenseCents,
+      oneTimeCashCents: current.oneTimeCashCents,
+      recurringCashCents: current.recurringCashCents,
+      installmentsCents: current.installmentsCents,
     },
-    faturaPaymentsDueCents: faturaPaymentsDue,
+    faturaPaymentsDueCents: current.faturaPaymentsDueCents,
     expectedEndCents: expectedEnd,
+    byCategory: current.byCategory,
+    series,
+    recentTransactions,
+    recurrings,
     cards: cardStats,
   };
 }

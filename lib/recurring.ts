@@ -27,6 +27,10 @@ export async function listEnabledRules() {
     .where(eq(recurringRules.enabled, true));
 }
 
+export async function listAllRules() {
+  return db.select().from(recurringRules);
+}
+
 /**
  * Remove leftover auto-materialized ledger rows from the old model.
  * Safe to call repeatedly.

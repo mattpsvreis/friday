@@ -109,7 +109,7 @@ export const purchases = pgTable("purchases", {
   purchaseDate: date("purchase_date").notNull(),
   totalCents: integer("total_cents").notNull(),
   installmentCount: integer("installment_count").notNull().default(1),
-  status: entryStatusEnum("status").notNull().default("unconfirmed"),
+  status: entryStatusEnum("status").notNull().default("confirmed"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

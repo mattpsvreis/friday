@@ -5,6 +5,7 @@ import { CategoryPill } from "@/components/category-pill";
 import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
 import { SortableTh } from "@/components/sortable-th";
+import { StatusPill } from "@/components/status-pill";
 import { formatBrl, parseBrlInput } from "@/lib/money";
 import { apiFetch } from "@/lib/session-client";
 import {
@@ -442,18 +443,10 @@ export default function RecurringPage() {
                     {formatBrl(rule.amountCents)}
                   </td>
                   <td className={TD_CLASS}>
-                    <button
-                      type="button"
-                      className={[
-                        "text-sm transition-colors hover:underline disabled:opacity-50",
-                        rule.enabled
-                          ? "text-neon-green"
-                          : "text-red-400 line-through hover:text-red-300",
-                      ].join(" ")}
-                      onClick={() => void toggleEnabled(rule)}
-                    >
-                      {rule.enabled ? "ON" : "OFF"}
-                    </button>
+                    <StatusPill
+                      enabled={rule.enabled}
+                      onToggle={() => void toggleEnabled(rule)}
+                    />
                   </td>
                   <td className={`${TD_CLASS} text-right`}>
                     <div className="flex flex-wrap items-center justify-end gap-2">

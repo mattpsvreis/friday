@@ -66,7 +66,6 @@ export async function POST(request: Request) {
     amountPerInstallmentCents?: number;
     currentNumber?: number;
     categoryId?: string | null;
-    status?: "unconfirmed" | "confirmed";
   }>(request);
 
   const description = (body.description ?? body.merchant)?.trim();
@@ -111,8 +110,6 @@ export async function POST(request: Request) {
     currentCycleCloseIso,
   });
 
-  const status = body.status ?? "confirmed";
-
   const result = await db.transaction(async (tx) => {
     const [purchase] = await tx
       .insert(purchases)
@@ -123,7 +120,7 @@ export async function POST(request: Request) {
         totalCents: built.totalCents,
         installmentCount: body.installmentCount!,
         categoryId: body.categoryId ?? null,
-        status,
+        status: "confirmed",
       })
       .returning();
 

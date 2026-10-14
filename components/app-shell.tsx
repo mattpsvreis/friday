@@ -1,43 +1,101 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { APP_NAV } from "@/lib/nav";
+import { Menu, X } from "lucide-react";
+import { APP_NAV, SETTINGS_NAV, type AppNavItem } from "@/lib/nav";
 
-function NavLinks({
+function navActive(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function BrandMark({
   onNavigate,
   className,
 }: {
   onNavigate?: () => void;
   className?: string;
 }) {
-  const pathname = usePathname();
-
   return (
-    <nav className={className}>
-      {APP_NAV.map((item) => {
-        const active =
-          item.href === "/"
-            ? pathname === "/"
-            : pathname === item.href || pathname.startsWith(`${item.href}/`);
-        return (
-          <Link
+    <Link
+      href="/"
+      onClick={onNavigate}
+      className={["block", className].filter(Boolean).join(" ")}
+      aria-label="Friday home"
+    >
+      <Image
+        src="/brand/friday-wide.png"
+        alt="Friday"
+        width={480}
+        height={120}
+        className="h-auto w-full"
+        priority
+      />
+    </Link>
+  );
+}
+
+function NavLink({
+  item,
+  pathname,
+  onNavigate,
+}: {
+  item: AppNavItem;
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const active = navActive(pathname, item.href);
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={[
+        "flex items-center gap-3 rounded-sm px-3 py-2 text-sm tracking-wide transition-colors",
+        active
+          ? "bg-neon-green/10 text-neon-green [text-shadow:0_0_10px_color-mix(in_srgb,var(--neon-green)_55%,transparent)]"
+          : "text-muted hover:bg-surface hover:text-foreground",
+      ].join(" ")}
+    >
+      <Icon className="size-4 shrink-0" aria-hidden />
+      <span>{item.label}</span>
+    </Link>
+  );
+}
+
+function SidebarNav({
+  pathname,
+  onNavigate,
+}: {
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col">
+      <BrandMark onNavigate={onNavigate} className="px-3 py-4" />
+
+      <nav className="flex flex-1 flex-col gap-0.5 px-2">
+        {APP_NAV.map((item) => (
+          <NavLink
             key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={[
-              "whitespace-nowrap text-sm tracking-wide transition-colors",
-              active
-                ? "text-neon-green [text-shadow:0_0_10px_color-mix(in_srgb,var(--neon-green)_55%,transparent)]"
-                : "text-muted hover:text-foreground",
-            ].join(" ")}
-          >
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
+            item={item}
+            pathname={pathname}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </nav>
+
+      <div className="mt-auto border-t border-border px-2 py-3">
+        <NavLink
+          item={SETTINGS_NAV}
+          pathname={pathname}
+          onNavigate={onNavigate}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -61,33 +119,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [open]);
 
   return (
-    <div className="min-h-full flex flex-col bg-background text-foreground">
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-border bg-surface/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4 sm:px-6">
-          <Link
-            href="/"
-            className="font-[family-name:var(--font-source-serif)] text-xl tracking-tight text-neon-green [text-shadow:0_0_12px_color-mix(in_srgb,var(--neon-green)_40%,transparent)]"
-          >
-            Friday
-          </Link>
+    <div className="min-h-full bg-background text-foreground">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-56 border-r border-border bg-surface lg:flex lg:flex-col">
+        <SidebarNav pathname={pathname} />
+      </aside>
 
-          <NavLinks className="hidden flex-1 items-center gap-4 overflow-x-auto lg:flex" />
-
-          <button
-            type="button"
-            className="ml-auto inline-flex h-9 w-9 items-center justify-center border border-border text-neon-orange lg:hidden"
-            aria-label={open ? "Close menu" : "Open menu"}
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            <span className="sr-only">Menu</span>
-            <span className="flex flex-col gap-1.5">
-              <span className="block h-0.5 w-5 bg-current" />
-              <span className="block h-0.5 w-5 bg-current" />
-              <span className="block h-0.5 w-5 bg-current" />
-            </span>
-          </button>
-        </div>
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-border bg-surface/95 px-4 backdrop-blur-sm lg:hidden">
+        <button
+          type="button"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-border text-neon-orange"
+          aria-label={open ? "Close menu" : "Open menu"}
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {open ? <X className="size-4" /> : <Menu className="size-4" />}
+        </button>
+        <BrandMark className="max-w-[9.5rem]" />
       </header>
 
       {open ? (
@@ -98,16 +145,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             aria-label="Close menu overlay"
             onClick={() => setOpen(false)}
           />
-          <aside className="fixed inset-y-0 right-0 z-50 flex w-72 max-w-[85vw] flex-col border-l border-border bg-surface p-6 pt-20 lg:hidden">
-            <NavLinks
-              onNavigate={() => setOpen(false)}
-              className="flex flex-col gap-4"
-            />
+          <aside className="fixed inset-y-0 left-0 z-50 flex w-56 max-w-[85vw] flex-col border-r border-border bg-surface lg:hidden">
+            <SidebarNav pathname={pathname} onNavigate={() => setOpen(false)} />
           </aside>
         </>
       ) : null}
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-16 pt-20 sm:px-6">
+      <main className="min-h-full px-4 pb-16 pt-20 sm:px-6 lg:pl-60 lg:pt-8">
         {children}
       </main>
     </div>
