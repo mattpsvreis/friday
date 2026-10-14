@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   ChartLine,
+  ChevronLeft,
+  ChevronRight,
   PiggyBank,
   TrendingDown,
   TrendingUp,
@@ -55,6 +57,7 @@ type RecentTx = {
   direction: "income" | "expense";
   method: string;
   amountCents: number;
+  perMonthCents: number | null;
   categoryName: string | null;
   categoryColor: string | null;
   cardLabel: string | null;
@@ -97,11 +100,26 @@ function monthTitle(year: number, month: number) {
   });
 }
 
-function brlAxis(cents: number) {
-  return (cents / 100).toLocaleString("pt-BR", {
+/** Chart Y values are in reais (not centavos). */
+function brlAxis(reais: number) {
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
     maximumFractionDigits: 0,
-  });
+  }).format(reais);
 }
+
+const CHART_TOOLTIP = {
+  wrapperStyle: { zIndex: 40, outline: "none" } as const,
+  contentStyle: {
+    background: "#121212",
+    border: "1px solid color-mix(in srgb, #39ff14 28%, transparent)",
+    position: "relative" as const,
+    zIndex: 40,
+  },
+  formatter: (value: number | string | ReadonlyArray<number | string> | undefined) =>
+    formatBrl(Math.round(Number(value) * 100)),
+};
 
 function KpiCard({
   label,
@@ -116,35 +134,36 @@ function KpiCard({
   accent?: "green" | "orange";
   hint?: string;
 }) {
+  const iconColor =
+    accent === "green"
+      ? "text-neon-green"
+      : accent === "orange"
+        ? "text-neon-orange"
+        : "text-muted";
+
   return (
-    <div className="border border-border bg-surface/40 px-4 py-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex items-center gap-4 border border-border bg-surface/40 px-4 py-3">
+      <Icon
+        className={["size-10 shrink-0", iconColor].join(" ")}
+        strokeWidth={1.5}
+        aria-hidden
+      />
+      <div className="min-w-0">
         <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
-        <Icon
+        <p
           className={[
-            "size-4",
+            "mt-1 font-[family-name:var(--font-source-serif)] text-2xl tabular-nums",
             accent === "green"
               ? "text-neon-green"
               : accent === "orange"
                 ? "text-neon-orange"
-                : "text-muted",
+                : "text-foreground",
           ].join(" ")}
-          aria-hidden
-        />
+        >
+          {value}
+        </p>
+        {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
       </div>
-      <p
-        className={[
-          "mt-2 font-[family-name:var(--font-source-serif)] text-2xl tabular-nums",
-          accent === "green"
-            ? "text-neon-green"
-            : accent === "orange"
-              ? "text-neon-orange"
-              : "text-foreground",
-        ].join(" ")}
-      >
-        {value}
-      </p>
-      {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
     </div>
   );
 }
@@ -278,12 +297,25 @@ export function DashboardView() {
     }
   }
 
+  const viewedLabel = useMemo(() => {
+    if (!data) return null;
+    return (
+      data.series.find(
+        (point) =>
+          point.year === data.window.year && point.month === data.window.month,
+      )?.label ?? null
+    );
+  }, [data]);
+
   const incomeExpenseChart = useMemo(
     () =>
       (data?.series ?? []).map((point) => ({
         label: point.label,
         income: point.incomeCents / 100,
         expense: point.expenseCents / 100,
+        isViewedMonth:
+          point.year === data?.window.year &&
+          point.month === data?.window.month,
       })),
     [data],
   );
@@ -303,7 +335,12 @@ export function DashboardView() {
 
   const stackedChart = useMemo(() => {
     return (data?.series ?? []).map((point) => {
-      const row: Record<string, string | number> = { label: point.label };
+      const row: Record<string, string | number | boolean> = {
+        label: point.label,
+        isViewedMonth:
+          point.year === data?.window.year &&
+          point.month === data?.window.month,
+      };
       for (const key of categoryKeys) {
         const slice = point.byCategory.find(
           (s) => (s.categoryId ?? "__none__") === key.id,
@@ -313,6 +350,33 @@ export function DashboardView() {
       return row;
     });
   }, [data, categoryKeys]);
+
+  function MonthTick({
+    x,
+    y,
+    payload,
+  }: {
+    x?: number;
+    y?: number;
+    payload?: { value?: string };
+  }) {
+    const active = Boolean(
+      viewedLabel && payload?.value && payload.value === viewedLabel,
+    );
+    return (
+      <text
+        x={x}
+        y={y}
+        dy={12}
+        textAnchor="middle"
+        fontSize={active ? 12 : 11}
+        fontWeight={active ? 700 : 400}
+        fill={active ? "#39ff14" : "#8a8a8a"}
+      >
+        {payload?.value}
+      </text>
+    );
+  }
 
   const donutData = useMemo(
     () =>
@@ -340,15 +404,7 @@ export function DashboardView() {
               : "Overview of your finances."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={BTN_LINK_CLASS}
-            onClick={() => shiftMonth(-1)}
-            disabled={year == null}
-          >
-            Prev
-          </button>
+        <div className="flex items-center gap-1">
           <input
             type="month"
             className={`${INPUT_CLASS} w-auto`}
@@ -366,11 +422,21 @@ export function DashboardView() {
           />
           <button
             type="button"
-            className={BTN_LINK_CLASS}
+            className="inline-flex h-10 w-9 items-center justify-center border border-border text-neon-green transition-colors hover:border-neon-green disabled:opacity-50"
+            onClick={() => shiftMonth(-1)}
+            disabled={year == null}
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="size-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-10 w-9 items-center justify-center border border-border text-neon-green transition-colors hover:border-neon-green disabled:opacity-50"
             onClick={() => shiftMonth(1)}
             disabled={year == null}
+            aria-label="Next month"
           >
-            Next
+            <ChevronRight className="size-4" aria-hidden />
           </button>
         </div>
       </div>
@@ -419,26 +485,24 @@ export function DashboardView() {
 
           <div className="grid gap-4 xl:grid-cols-2">
             <Panel title="Income vs Expenses">
-              <div className="h-64">
+              <div className="relative z-0 h-64 overflow-visible">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={incomeExpenseChart}>
                     <CartesianGrid stroke="color-mix(in srgb, #39ff14 12%, transparent)" />
-                    <XAxis dataKey="label" stroke="#8a8a8a" fontSize={12} />
+                    <XAxis
+                      dataKey="label"
+                      stroke="#8a8a8a"
+                      tick={<MonthTick />}
+                      interval={0}
+                    />
                     <YAxis
                       stroke="#8a8a8a"
-                      fontSize={12}
-                      tickFormatter={(v: number) => brlAxis(v * 100)}
+                      fontSize={11}
+                      width={72}
+                      tickFormatter={(v: number) => brlAxis(v)}
                     />
-                    <Tooltip
-                      formatter={(value) =>
-                        formatBrl(Math.round(Number(value) * 100))
-                      }
-                      contentStyle={{
-                        background: "#121212",
-                        border: "1px solid color-mix(in srgb, #39ff14 28%, transparent)",
-                      }}
-                    />
-                    <Legend />
+                    <Tooltip {...CHART_TOOLTIP} />
+                    <Legend wrapperStyle={{ position: "relative", zIndex: 0 }} />
                     <Bar dataKey="income" name="Income" fill="#39ff14" />
                     <Bar dataKey="expense" name="Expense" fill="#ff6b00" />
                   </BarChart>
@@ -466,22 +530,13 @@ export function DashboardView() {
                             <Cell key={entry.name} fill={entry.color} />
                           ))}
                         </Pie>
-                        <Tooltip
-                          formatter={(value) =>
-                            formatBrl(Math.round(Number(value) * 100))
-                          }
-                          contentStyle={{
-                            background: "#121212",
-                            border:
-                              "1px solid color-mix(in srgb, #39ff14 28%, transparent)",
-                          }}
-                        />
+                        <Tooltip {...CHART_TOOLTIP} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                       <div className="text-center">
                         <p className="text-xs uppercase text-muted">Total</p>
-                        <p className="text-sm tabular-nums text-foreground">
+                        <p className="text-sm tabular-nums text-neon-orange">
                           {formatBrl(data.expenseCents)}
                         </p>
                       </div>
@@ -507,8 +562,11 @@ export function DashboardView() {
                             />
                             {entry.name}
                           </span>
-                          <span className="tabular-nums text-foreground">
-                            {formatBrl(entry.cents)} · {pct}%
+                          <span className="tabular-nums">
+                            <span className="text-neon-orange">
+                              {formatBrl(entry.cents)}
+                            </span>
+                            <span className="text-muted"> · {pct}%</span>
                           </span>
                         </li>
                       );
@@ -520,30 +578,27 @@ export function DashboardView() {
           </div>
 
           <Panel title="Expenses by Category (−3 … +3 months)">
-            <div className="h-72">
+            <div className="relative z-0 h-72 overflow-visible">
               {categoryKeys.length === 0 ? (
                 <p className="text-sm text-muted">No category spend in this window.</p>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stackedChart}>
                     <CartesianGrid stroke="color-mix(in srgb, #39ff14 12%, transparent)" />
-                    <XAxis dataKey="label" stroke="#8a8a8a" fontSize={12} />
+                    <XAxis
+                      dataKey="label"
+                      stroke="#8a8a8a"
+                      tick={<MonthTick />}
+                      interval={0}
+                    />
                     <YAxis
                       stroke="#8a8a8a"
-                      fontSize={12}
-                      tickFormatter={(v: number) => brlAxis(v * 100)}
+                      fontSize={11}
+                      width={72}
+                      tickFormatter={(v: number) => brlAxis(v)}
                     />
-                    <Tooltip
-                      formatter={(value) =>
-                        formatBrl(Math.round(Number(value) * 100))
-                      }
-                      contentStyle={{
-                        background: "#121212",
-                        border:
-                          "1px solid color-mix(in srgb, #39ff14 28%, transparent)",
-                      }}
-                    />
-                    <Legend />
+                    <Tooltip {...CHART_TOOLTIP} />
+                    <Legend wrapperStyle={{ position: "relative", zIndex: 0 }} />
                     {categoryKeys.map((key) => (
                       <Bar
                         key={key.id}
@@ -569,13 +624,14 @@ export function DashboardView() {
                 <p className="text-sm text-muted">No transactions yet.</p>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[28rem] text-left text-sm">
+                  <table className="w-full min-w-[32rem] text-left text-sm">
                     <thead>
                       <tr className="text-xs uppercase tracking-wide text-muted">
                         <th className="pb-2 font-medium">Date</th>
                         <th className="pb-2 font-medium">Description</th>
                         <th className="pb-2 font-medium">Category</th>
                         <th className="pb-2 text-right font-medium">Amount</th>
+                        <th className="pb-2 text-right font-medium">Per Month</th>
                         <th className="pb-2 text-right font-medium">Method</th>
                       </tr>
                     </thead>
@@ -605,6 +661,11 @@ export function DashboardView() {
                             ].join(" ")}
                           >
                             {formatBrl(tx.amountCents)}
+                          </td>
+                          <td className="py-2 text-right tabular-nums text-muted">
+                            {tx.perMonthCents != null
+                              ? formatBrl(tx.perMonthCents)
+                              : "N/A"}
                           </td>
                           <td className="py-2 text-right uppercase text-muted">
                             {tx.cardLabel ?? tx.method}

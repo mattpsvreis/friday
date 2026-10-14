@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   getSessionToken,
@@ -82,10 +83,15 @@ export default function UnlockPage() {
         onSubmit={onSubmit}
         className="w-full max-w-md space-y-6 border border-border bg-surface p-8"
       >
-        <div className="space-y-2 text-center">
-          <h1 className="font-[family-name:var(--font-source-serif)] text-4xl text-neon-green [text-shadow:0_0_16px_color-mix(in_srgb,var(--neon-green)_45%,transparent)]">
-            Friday
-          </h1>
+        <div className="space-y-3 text-center">
+          <Image
+            src="/brand/friday-wide.png"
+            alt="Friday"
+            width={480}
+            height={120}
+            className="mx-auto h-auto w-[70%] max-w-[14rem]"
+            priority
+          />
           <p className="text-muted">
             {mode === "setup"
               ? "Set a local unlock password."

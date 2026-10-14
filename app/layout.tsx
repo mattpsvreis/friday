@@ -15,6 +15,16 @@ const sourceSerif = Source_Serif_4({
 export const metadata: Metadata = {
   title: "Friday",
   description: "Personal finance manager",
+  icons: {
+    icon: [
+      { url: "/favicon-16.png", type: "image/png", sizes: "16x16" },
+      { url: "/favicon.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon-48.png", type: "image/png", sizes: "48x48" },
+      { url: "/icon.png", type: "image/png", sizes: "256x256" },
+    ],
+    shortcut: "/favicon.png",
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

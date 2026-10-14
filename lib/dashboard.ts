@@ -358,14 +358,24 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
       month: shifted.monthIndex + 1,
       ...shared,
     });
+    const monthName =
+      MONTH_LABELS[shifted.monthIndex] ?? String(shifted.monthIndex + 1);
+    const yearShort = String(shifted.year).slice(-2);
     series.push({
       year: shifted.year,
       month: shifted.monthIndex + 1,
-      label: MONTH_LABELS[shifted.monthIndex] ?? String(shifted.monthIndex + 1),
+      label: `${monthName}/${yearShort}`,
       incomeCents: point.incomesCents,
       expenseCents: point.expenseCents,
       byCategory: point.byCategory,
     });
+  }
+
+  const installmentsByPurchase = new Map<string, typeof confirmedInstallments>();
+  for (const row of confirmedInstallments) {
+    const list = installmentsByPurchase.get(row.purchaseId) ?? [];
+    list.push(row);
+    installmentsByPurchase.set(row.purchaseId, list);
   }
 
   const recentLedger = [...allConfirmedLedger]
@@ -379,6 +389,7 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
       direction: row.direction,
       method: row.method,
       amountCents: row.amountCents,
+      perMonthCents: null as number | null,
       categoryId: row.categoryId,
       creditCardId: row.creditCardId,
     }));
@@ -386,17 +397,27 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
   const recentPurchases = [...confirmedPurchases]
     .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))
     .slice(0, 12)
-    .map((row) => ({
-      id: row.id,
-      kind: "purchase" as const,
-      date: row.purchaseDate,
-      name: row.merchant,
-      direction: "expense" as const,
-      method: "credit_card",
-      amountCents: row.totalCents,
-      categoryId: row.categoryId,
-      creditCardId: row.creditCardId,
-    }));
+    .map((row) => {
+      const parcels = installmentsByPurchase.get(row.id) ?? [];
+      const firstParcel = parcels.find((p) => p.number === 1) ?? parcels[0];
+      const perMonthCents =
+        firstParcel?.amountCents ??
+        (row.installmentCount > 0
+          ? Math.round(row.totalCents / row.installmentCount)
+          : row.totalCents);
+      return {
+        id: row.id,
+        kind: "purchase" as const,
+        date: row.purchaseDate,
+        name: row.merchant,
+        direction: "expense" as const,
+        method: "credit_card",
+        amountCents: row.totalCents,
+        perMonthCents,
+        categoryId: row.categoryId,
+        creditCardId: row.creditCardId,
+      };
+    });
 
   const recentTransactions = [...recentLedger, ...recentPurchases]
     .sort((a, b) => b.date.localeCompare(a.date))

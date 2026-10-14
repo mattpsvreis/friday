@@ -15,9 +15,11 @@ function navActive(pathname: string, href: string) {
 function BrandMark({
   onNavigate,
   className,
+  compact,
 }: {
   onNavigate?: () => void;
   className?: string;
+  compact?: boolean;
 }) {
   return (
     <Link
@@ -31,7 +33,9 @@ function BrandMark({
         alt="Friday"
         width={480}
         height={120}
-        className="h-auto w-full"
+        className={
+          compact ? "h-7 w-auto max-w-[8.5rem]" : "mx-auto h-auto w-[72%]"
+        }
         priority
       />
     </Link>
@@ -75,7 +79,7 @@ function SidebarNav({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <BrandMark onNavigate={onNavigate} className="px-3 py-4" />
+      <BrandMark onNavigate={onNavigate} className="px-3 py-3" />
 
       <nav className="flex flex-1 flex-col gap-0.5 px-2">
         {APP_NAV.map((item) => (
@@ -88,7 +92,7 @@ function SidebarNav({
         ))}
       </nav>
 
-      <div className="mt-auto border-t border-border px-2 py-3">
+      <div className="mt-auto px-2 pb-8 pt-2">
         <NavLink
           item={SETTINGS_NAV}
           pathname={pathname}
@@ -134,7 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           {open ? <X className="size-4" /> : <Menu className="size-4" />}
         </button>
-        <BrandMark className="max-w-[9.5rem]" />
+        <BrandMark compact className="min-w-0" />
       </header>
 
       {open ? (
