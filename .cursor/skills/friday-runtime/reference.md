@@ -51,8 +51,10 @@ DATABASE_URL=postgresql://USER:PASSWORD@127.0.0.1:5432/DB
 
 ## Boot scripts
 
-- `scripts/dev.sh` — POSIX `sh`, `set -eu`, same checks as bat.
-- `scripts/dev.bat` — `cd /d "%~dp0\.."`, same order: Docker → pnpm → node_modules → compose → `pnpm dev`.
+- `scripts/dev.sh` — POSIX `sh`; healthy-postgres skip; delayed browser open (`open` / `xdg-open`); `fail` waits on `/dev/tty`.
+- `scripts/dev.bat` — `cd /d "%~dp0\.."`; same checks; `start http://localhost:3000/` after 4s; `:fail` + `pause`.
+
+Order: Docker → pnpm → `node_modules` → `.env` → postgres (skip if healthy) → browser → `pnpm dev`.
 
 Unix: keep `chmod +x scripts/dev.sh` when recreating the file.
 

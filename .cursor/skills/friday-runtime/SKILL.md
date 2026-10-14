@@ -23,12 +23,12 @@ Keep both scripts equivalent. Do not add a second boot path. Do not use host-ins
 ## What the boot scripts do
 
 1. `cd` to repo root from the script path.
-2. Fail if Docker CLI/daemon missing.
-3. Fail if `pnpm` missing (do not auto-install).
-4. Fail if `node_modules` missing — tell user to run `pnpm install`.
-5. `docker compose up -d --wait`.
-6. Foreground `pnpm dev`.
-7. On exit, leave Compose running; print `docker compose stop`. Ctrl+C must not `down -v`.
+2. Fail if Docker CLI/daemon missing, `pnpm` missing, `node_modules` missing, or `.env` missing.
+3. If Compose `postgres` is already **healthy**, skip start; otherwise `docker compose up -d --wait`.
+4. Open the default browser to `http://localhost:3000` after a short delay.
+5. Foreground `pnpm dev`.
+6. On boot failure (Docker/pnpm/deps/.env/Postgres): print `ERROR: …` and wait for a key/Enter before exiting (so double-click windows stay readable). Stopping Next.js is not treated as failure.
+7. On normal exit, leave Compose running; print `docker compose stop`. Ctrl+C must not `down -v`.
 
 ## Compose
 
