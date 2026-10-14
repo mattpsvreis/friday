@@ -1,7 +1,10 @@
+import { connection } from "next/server";
 import { jsonError, jsonOk, unauthorizedIfNeeded } from "@/lib/api";
 import { getDashboardData, resolveDashboardMonth } from "@/lib/dashboard";
 
 export async function GET(request: Request) {
+  await connection();
+
   const unauthorized = await unauthorizedIfNeeded(request);
   if (unauthorized) return unauthorized;
 

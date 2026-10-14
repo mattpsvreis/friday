@@ -26,7 +26,11 @@ export async function apiFetch(input: string, init: RequestInit = {}) {
   ) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(input, { ...init, headers });
+  const response = await fetch(input, {
+    ...init,
+    cache: init.cache ?? "no-store",
+    headers,
+  });
   if (response.status === 401) {
     clearSessionToken();
   }

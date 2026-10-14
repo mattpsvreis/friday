@@ -445,8 +445,10 @@ export default function RecurringPage() {
                     <button
                       type="button"
                       className={[
-                        BTN_LINK_CLASS,
-                        rule.enabled ? "text-neon-green" : "text-muted line-through",
+                        "text-sm transition-colors hover:underline disabled:opacity-50",
+                        rule.enabled
+                          ? "text-neon-green"
+                          : "text-red-400 line-through hover:text-red-300",
                       ].join(" ")}
                       onClick={() => void toggleEnabled(rule)}
                     >

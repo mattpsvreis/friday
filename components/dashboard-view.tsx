@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { shiftYearMonth } from "@/lib/dates";
 import { formatBrl } from "@/lib/money";
 import { apiFetch } from "@/lib/session-client";
@@ -72,6 +73,7 @@ function SplitRow({ label, cents }: { label: string; cents: number }) {
 }
 
 export function DashboardView() {
+  const pathname = usePathname();
   const [year, setYear] = useState<number | null>(null);
   const [month, setMonth] = useState<number | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
@@ -87,8 +89,9 @@ export function DashboardView() {
   useEffect(() => {
     if (year == null || month == null) return;
     let cancelled = false;
-    (async () => {
-      setLoading(true);
+
+    async function load(showLoading: boolean) {
+      if (showLoading) setLoading(true);
       setError(null);
       try {
         const res = await apiFetch(
@@ -104,13 +107,27 @@ export function DashboardView() {
           setError(e instanceof Error ? e.message : "Failed to load dashboard");
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && showLoading) setLoading(false);
       }
-    })();
+    }
+
+    void load(true);
+
+    function onVisible() {
+      if (document.visibilityState === "visible") void load(false);
+    }
+    function onFocus() {
+      void load(false);
+    }
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
     };
-  }, [year, month]);
+  }, [year, month, pathname]);
 
   function shiftMonth(delta: number) {
     if (year == null || month == null) return;

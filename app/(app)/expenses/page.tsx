@@ -6,6 +6,7 @@ import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
 import { SortableTh } from "@/components/sortable-th";
 import { formatBrl, parseBrlInput } from "@/lib/money";
+import { splitTotalAcrossInstallments } from "@/lib/purchases";
 import { apiFetch } from "@/lib/session-client";
 import {
   BTN_DANGER_CLASS,
@@ -80,7 +81,7 @@ export default function ExpensesPage() {
     description: "",
     purchaseDate: "",
     installmentCount: "1",
-    amountPerInstallment: "",
+    totalAmount: "",
     currentNumber: "1",
     categoryId: "",
   });
@@ -89,6 +90,17 @@ export default function ExpensesPage() {
     () => categories.filter((c) => c.kind === "expense"),
     [categories],
   );
+
+  const purchaseParcelHint = useMemo(() => {
+    const totalCents = parseBrlInput(purchase.totalAmount);
+    const count = Number(purchase.installmentCount);
+    if (totalCents <= 0 || !Number.isInteger(count) || count < 1) return null;
+    const amounts = splitTotalAcrossInstallments(totalCents, count);
+    return {
+      perCents: amounts[0] ?? 0,
+      count,
+    };
+  }, [purchase.totalAmount, purchase.installmentCount]);
 
   const categoryById = useMemo(() => {
     const map = new Map<string, Category>();
@@ -218,7 +230,7 @@ export default function ExpensesPage() {
       description: purchase.description,
       purchaseDate: purchase.purchaseDate,
       installmentCount: Number(purchase.installmentCount),
-      amountPerInstallmentCents: parseBrlInput(purchase.amountPerInstallment),
+      totalCents: parseBrlInput(purchase.totalAmount),
       currentNumber: Number(purchase.currentNumber),
       categoryId: purchase.categoryId || null,
       status: "confirmed" as const,
@@ -235,7 +247,7 @@ export default function ExpensesPage() {
     setPurchase((s) => ({
       ...s,
       description: "",
-      amountPerInstallment: "",
+      totalAmount: "",
     }));
     void refreshLedger();
   }
@@ -411,16 +423,25 @@ export default function ExpensesPage() {
             </label>
           </div>
           <label className="block space-y-1">
-            <span className="text-sm text-muted">Amount per installment (BRL)</span>
+            <span className="text-sm text-muted">Total amount (BRL)</span>
             <input
               className={INPUT_CLASS}
-              value={purchase.amountPerInstallment}
+              value={purchase.totalAmount}
               onChange={(e) =>
-                setPurchase({ ...purchase, amountPerInstallment: e.target.value })
+                setPurchase({ ...purchase, totalAmount: e.target.value })
               }
               required
               inputMode="decimal"
             />
+            {purchaseParcelHint ? (
+              <span className="block text-xs text-muted">
+                {purchaseParcelHint.count}× of{" "}
+                {formatBrl(purchaseParcelHint.perCents)}
+                {purchaseParcelHint.count > 1
+                  ? " (last parcel may differ by a few centavos)"
+                  : ""}
+              </span>
+            ) : null}
           </label>
           <label className="block space-y-1">
             <span className="text-sm text-muted">Category</span>

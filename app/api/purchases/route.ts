@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     description?: string;
     purchaseDate?: string;
     installmentCount?: number;
+    totalCents?: number;
     amountPerInstallmentCents?: number;
     currentNumber?: number;
     categoryId?: string | null;
@@ -39,8 +40,11 @@ export async function POST(request: Request) {
   if (typeof body.installmentCount !== "number") {
     return jsonError("installmentCount is required");
   }
-  if (typeof body.amountPerInstallmentCents !== "number") {
-    return jsonError("amountPerInstallmentCents is required");
+  if (
+    typeof body.totalCents !== "number" &&
+    typeof body.amountPerInstallmentCents !== "number"
+  ) {
+    return jsonError("totalCents is required");
   }
 
   const [card] = await db
@@ -64,6 +68,7 @@ export async function POST(request: Request) {
 
   const built = buildInstallments({
     installmentCount: body.installmentCount,
+    totalCents: body.totalCents,
     amountPerInstallmentCents: body.amountPerInstallmentCents,
     currentNumber,
     currentCycleCloseIso,
