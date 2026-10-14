@@ -17,7 +17,6 @@ import {
   inInclusiveRange,
   parseIsoDate,
   faturaExpenseAttributionDate,
-  paymentDueForCycle,
   shiftYearMonth,
   toIsoDate,
 } from "@/lib/dates";
@@ -154,7 +153,7 @@ function monthMetrics(input: {
 
   /**
    * Confirmed purchase parcels budgeted in this month.
-   * Fatura dues are attributed to due-month − 1 (paycheck planning).
+   * Attribution is cycle-close − 1 (cut on the card close day, e.g. the 4th).
    */
   let purchaseInstallmentsDue = 0;
   const byCategory = new Map<string, CategorySlice>();
@@ -165,11 +164,8 @@ function monthMetrics(input: {
         (p) => p.id === row.purchaseId,
       );
       if (!purchase || purchase.creditCardId !== card.id) continue;
-      const due = paymentDueForCycle(
-        parseIsoDate(row.cycleCloseDate),
-        card.paymentDueDay,
-      );
-      const attributed = faturaExpenseAttributionDate(due);
+      const close = parseIsoDate(row.cycleCloseDate);
+      const attributed = faturaExpenseAttributionDate(close);
       if (!inInclusiveRange(attributed, start, end)) continue;
       purchaseInstallmentsDue += row.amountCents;
       addCategoryCents(
@@ -181,14 +177,45 @@ function monthMetrics(input: {
     }
   }
 
-  /** Card recurring templates whose fatura due falls in this month (not installments). */
+  /** Card recurring templates budgeted in this month (close − 1). */
   const recurringCardDue = sumRecurringCardPaymentsDueInWindow(
     input.enabledRules as RecurringRuleRow[],
     input.cardsById,
     start,
     end,
   );
-  const faturaPaymentsDue = purchaseInstallmentsDue + recurringCardDue;
+
+  /**
+   * One-shot credit-card ledger expenses budgeted by cycle close − 1
+   * (cut on the 4th / card close day — not calendar month of occursOn).
+   */
+  const DEFAULT_CYCLE_CLOSE_DAY = 4;
+  let ledgerCardDue = 0;
+  for (const row of input.allConfirmedLedger) {
+    if (row.direction !== "expense") continue;
+    if (row.method !== "credit_card" && row.method !== "card_payment") {
+      continue;
+    }
+    const card = row.creditCardId
+      ? input.cardsById.get(row.creditCardId)
+      : undefined;
+    const close = cycleCloseDateFor(
+      parseIsoDate(row.occursOn),
+      card?.cycleCloseDay ?? DEFAULT_CYCLE_CLOSE_DAY,
+    );
+    const attributed = faturaExpenseAttributionDate(close);
+    if (!inInclusiveRange(attributed, start, end)) continue;
+    ledgerCardDue += row.amountCents;
+    addCategoryCents(
+      byCategory,
+      row.categoryId,
+      row.amountCents,
+      input.categoryById,
+    );
+  }
+
+  const faturaPaymentsDue =
+    purchaseInstallmentsDue + recurringCardDue + ledgerCardDue;
 
   for (const rule of input.enabledRules) {
     if (rule.direction !== "expense") continue;
@@ -198,7 +225,7 @@ function monthMetrics(input: {
         : undefined;
       if (!card) continue;
       let dueInWindow = false;
-      // −1/0/+1 charge months cover close→due lag after due−1 attribution.
+      // Nearby charge months cover close-day lag after close−1 attribution.
       for (const delta of [-1, 0, 1] as const) {
         const shifted = shiftYearMonth(input.year, monthIndex, delta);
         const charge = dateWithDay(
@@ -207,8 +234,7 @@ function monthMetrics(input: {
           clampDay(shifted.year, shifted.monthIndex, rule.dayOfMonth),
         );
         const close = cycleCloseDateFor(charge, card.cycleCloseDay);
-        const due = paymentDueForCycle(close, card.paymentDueDay);
-        const attributed = faturaExpenseAttributionDate(due);
+        const attributed = faturaExpenseAttributionDate(close);
         if (inInclusiveRange(attributed, start, end)) {
           dueInWindow = true;
           break;
@@ -263,8 +289,11 @@ function monthMetrics(input: {
     oneTimeCashCents: oneTimeCash,
     recurringCashCents: recurringCash,
     recurringCardCents: recurringCardDue,
-    /** Purchase installment parcels only — excludes card recurring templates. */
-    installmentsCents: purchaseInstallmentsDue,
+    /**
+     * Card-cycle spend budgeted this month: purchase parcels + one-shot
+     * credit-card ledger rows (excludes card recurring templates).
+     */
+    installmentsCents: purchaseInstallmentsDue + ledgerCardDue,
     faturaPaymentsDueCents: faturaPaymentsDue,
     expenseCents,
     byCategory: [...byCategory.values()].sort((a, b) => b.cents - a.cents),

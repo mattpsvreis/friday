@@ -30,6 +30,7 @@ import { CategoryPill } from "@/components/category-pill";
 import { StatusPill } from "@/components/status-pill";
 import { shiftYearMonth } from "@/lib/dates";
 import { formatBrl } from "@/lib/money";
+import { paymentMethodLabel } from "@/lib/payment-methods";
 import { apiFetch } from "@/lib/session-client";
 import { BTN_LINK_CLASS, INPUT_CLASS } from "@/lib/ui-classes";
 
@@ -129,6 +130,47 @@ const CHART_TOOLTIP = {
     formatBrl(Math.round(Number(value) * 100)),
 };
 
+function CategoryStackTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    name?: string;
+    value?: number | string;
+    color?: string;
+    dataKey?: string | number;
+  }>;
+  label?: string | number;
+}) {
+  if (!active || !payload?.length) return null;
+  const rows = payload.filter((entry) => Number(entry.value) > 0);
+  if (rows.length === 0) return null;
+
+  return (
+    <div
+      className="border border-border bg-[#121212] px-3 py-2 text-sm shadow-lg"
+      style={{ position: "relative", zIndex: 40 }}
+    >
+      <p className="mb-2 text-xs uppercase tracking-wide text-muted">{label}</p>
+      <ul className="space-y-1">
+        {rows.map((entry) => (
+          <li
+            key={String(entry.dataKey ?? entry.name)}
+            className="flex items-baseline justify-between gap-4"
+          >
+            <span style={{ color: entry.color }}>{entry.name}</span>
+            <span className="tabular-nums text-neon-orange">
+              {formatBrl(Math.round(Number(entry.value) * 100))}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function KpiCard({
   label,
   value,
@@ -219,7 +261,7 @@ function ExpenseMixPanel({
     {
       key: "recurring",
       label: "Recurring",
-      hint: "ON cash + card (card uses due−1)",
+      hint: "ON cash + card (card uses close−1)",
       cents: recurringCents,
       color: "#39ff14",
     },
@@ -233,7 +275,7 @@ function ExpenseMixPanel({
     {
       key: "installments",
       label: "Installments",
-      hint: "Parcels budgeted here (paid next month)",
+      hint: "Card cycle (parcels + card ledger, close−1)",
       cents: installmentsCents,
       color: "#7dd3fc",
     },
@@ -708,7 +750,10 @@ export function DashboardView() {
                         width={72}
                         tickFormatter={(v: number) => brlAxis(v)}
                       />
-                      <Tooltip {...CHART_TOOLTIP} />
+                      <Tooltip
+                        wrapperStyle={{ zIndex: 40, outline: "none" }}
+                        content={<CategoryStackTooltip />}
+                      />
                       <Legend
                         wrapperStyle={{ position: "relative", zIndex: 0 }}
                       />
@@ -792,8 +837,8 @@ export function DashboardView() {
                               ? formatBrl(tx.perMonthCents)
                               : "N/A"}
                           </td>
-                          <td className="py-2 text-right uppercase text-muted">
-                            {tx.cardLabel ?? tx.method}
+                          <td className="py-2 text-right text-muted">
+                            {tx.cardLabel ?? paymentMethodLabel(tx.method)}
                           </td>
                         </tr>
                       ))}

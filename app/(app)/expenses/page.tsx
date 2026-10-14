@@ -6,6 +6,11 @@ import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
 import { SortableTh } from "@/components/sortable-th";
 import { formatBrl, parseBrlInput } from "@/lib/money";
+import {
+  paymentMethodLabel,
+  paymentMethodSelectOptions,
+  SELECTABLE_PAYMENT_METHODS,
+} from "@/lib/payment-methods";
 import { splitTotalAcrossInstallments } from "@/lib/purchases";
 import { apiFetch } from "@/lib/session-client";
 import {
@@ -30,10 +35,25 @@ import { useTodayIso } from "@/lib/use-today-iso";
 type ExpenseSortKey =
   | "name"
   | "category"
-  | "day"
+  | "date"
   | "method"
-  | "amount"
-  | "status";
+  | "amount";
+
+type PurchaseSortKey =
+  | "date"
+  | "description"
+  | "category"
+  | "card"
+  | "parcels"
+  | "total";
+
+type PurchaseSortKey =
+  | "date"
+  | "description"
+  | "category"
+  | "card"
+  | "parcels"
+  | "total";
 
 type LedgerEntry = {
   id: string;
@@ -68,15 +88,6 @@ type PurchaseRow = {
   }[];
 };
 
-const METHODS = [
-  "pix",
-  "cash",
-  "credit_card",
-  "other",
-  "transfer",
-  "card_payment",
-] as const;
-
 const EMPTY_PURCHASE = {
   creditCardId: "",
   description: "",
@@ -84,6 +95,15 @@ const EMPTY_PURCHASE = {
   installmentCount: "1",
   totalAmount: "",
   categoryId: "",
+};
+
+const EMPTY_EXPENSE = {
+  amount: "",
+  occursOn: "",
+  description: "",
+  method: "pix" as (typeof SELECTABLE_PAYMENT_METHODS)[number],
+  categoryId: "",
+  creditCardId: "",
 };
 
 function centsToBrlInput(cents: number) {
@@ -101,15 +121,9 @@ export default function ExpensesPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editPurchaseId, setEditPurchaseId] = useState<string | null>(null);
+  const [editExpenseId, setEditExpenseId] = useState<string | null>(null);
 
-  const [expense, setExpense] = useState({
-    amount: "",
-    occursOn: "",
-    description: "",
-    method: "pix" as (typeof METHODS)[number],
-    categoryId: "",
-    creditCardId: "",
-  });
+  const [expense, setExpense] = useState(EMPTY_EXPENSE);
 
   const [purchase, setPurchase] = useState(EMPTY_PURCHASE);
 
@@ -138,8 +152,38 @@ export default function ExpensesPage() {
     return map;
   }, [categories]);
 
+  const cardById = useMemo(() => {
+    const map = new Map<string, Card>();
+    for (const c of cards) map.set(c.id, c);
+    return map;
+  }, [cards]);
+
+  function methodLabel(row: LedgerEntry) {
+    if (
+      (row.method === "credit_card" || row.method === "card_payment") &&
+      row.creditCardId
+    ) {
+      return (
+        cardById.get(row.creditCardId)?.label ?? paymentMethodLabel(row.method)
+      );
+    }
+    return paymentMethodLabel(row.method);
+  }
+
   const compareExpenses = useCallback(
     (a: LedgerEntry, b: LedgerEntry, key: ExpenseSortKey, dir: SortDir) => {
+      const labelFor = (row: LedgerEntry) => {
+        if (
+          (row.method === "credit_card" || row.method === "card_payment") &&
+          row.creditCardId
+        ) {
+          return (
+            cardById.get(row.creditCardId)?.label ??
+            paymentMethodLabel(row.method)
+          );
+        }
+        return paymentMethodLabel(row.method);
+      };
       switch (key) {
         case "name":
           return cmpText(a.description || a.method, b.description || b.method, dir);
@@ -149,19 +193,17 @@ export default function ExpensesPage() {
             categoryById.get(b.categoryId ?? "")?.name ?? "",
             dir,
           );
-        case "day":
+        case "date":
           return cmpText(a.occursOn, b.occursOn, dir);
         case "method":
-          return cmpText(a.method, b.method, dir);
+          return cmpText(labelFor(a), labelFor(b), dir);
         case "amount":
           return cmpNumber(a.amountCents, b.amountCents, dir);
-        case "status":
-          return cmpText(a.status, b.status, dir);
         default:
           return 0;
       }
     },
-    [categoryById],
+    [categoryById, cardById],
   );
 
   const {
@@ -171,8 +213,51 @@ export default function ExpensesPage() {
     toggle,
   } = useTableSort<LedgerEntry, ExpenseSortKey>(
     entries,
-    "name",
+    "date",
     compareExpenses,
+    "desc",
+  );
+
+  const comparePurchases = useCallback(
+    (a: PurchaseRow, b: PurchaseRow, key: PurchaseSortKey, dir: SortDir) => {
+      switch (key) {
+        case "date":
+          return cmpText(a.purchaseDate, b.purchaseDate, dir);
+        case "description":
+          return cmpText(a.merchant, b.merchant, dir);
+        case "category":
+          return cmpText(
+            categoryById.get(a.categoryId ?? "")?.name ?? "",
+            categoryById.get(b.categoryId ?? "")?.name ?? "",
+            dir,
+          );
+        case "card":
+          return cmpText(
+            cardById.get(a.creditCardId)?.label ?? "",
+            cardById.get(b.creditCardId)?.label ?? "",
+            dir,
+          );
+        case "parcels":
+          return cmpNumber(a.installmentCount, b.installmentCount, dir);
+        case "total":
+          return cmpNumber(a.totalCents, b.totalCents, dir);
+        default:
+          return 0;
+      }
+    },
+    [categoryById, cardById],
+  );
+
+  const {
+    sorted: sortedPurchases,
+    sortKey: purchaseSortKey,
+    sortDir: purchaseSortDir,
+    toggle: togglePurchaseSort,
+  } = useTableSort<PurchaseRow, PurchaseSortKey>(
+    purchaseRows,
+    "date",
+    comparePurchases,
+    "desc",
   );
 
   useEffect(() => {
@@ -184,12 +269,6 @@ export default function ExpensesPage() {
       prev.purchaseDate ? prev : { ...prev, purchaseDate: today },
     );
   }, [today]);
-
-  const cardById = useMemo(() => {
-    const map = new Map<string, Card>();
-    for (const c of cards) map.set(c.id, c);
-    return map;
-  }, [cards]);
 
   function refreshLedger() {
     return Promise.all([
@@ -239,6 +318,7 @@ export default function ExpensesPage() {
       throw new Error(json.error ?? "Delete failed");
     }
     setEntries((prev) => prev.filter((row) => row.id !== entry.id));
+    if (editExpenseId === entry.id) resetExpenseForm();
   }
 
   async function deletePurchase(row: PurchaseRow) {
@@ -256,7 +336,28 @@ export default function ExpensesPage() {
     if (editPurchaseId === row.id) resetPurchaseForm();
   }
 
-  async function onAddExpense(e: FormEvent) {
+  function resetExpenseForm() {
+    setEditExpenseId(null);
+    setExpense({
+      ...EMPTY_EXPENSE,
+      occursOn: today ?? "",
+    });
+  }
+
+  function startEditExpense(row: LedgerEntry) {
+    setEditExpenseId(row.id);
+    setExpense({
+      amount: centsToBrlInput(row.amountCents),
+      occursOn: row.occursOn,
+      description: row.description,
+      method: row.method as (typeof SELECTABLE_PAYMENT_METHODS)[number],
+      categoryId: row.categoryId ?? "",
+      creditCardId: row.creditCardId ?? "",
+    });
+    setError(null);
+  }
+
+  async function onSaveExpense(e: FormEvent) {
     e.preventDefault();
     setError(null);
     const body = {
@@ -270,18 +371,28 @@ export default function ExpensesPage() {
         expense.method === "credit_card" && expense.creditCardId
           ? expense.creditCardId
           : null,
+      ...(editExpenseId ? { id: editExpenseId } : {}),
     };
     const res = await apiFetch("/api/ledger", {
-      method: "POST",
+      method: editExpenseId ? "PUT" : "POST",
       body: JSON.stringify(body),
     });
     const json = (await res.json()) as LedgerEntry & { error?: string };
     if (!res.ok) {
-      setError(json.error ?? "Could not add expense");
+      setError(
+        json.error ??
+          (editExpenseId ? "Could not update expense" : "Could not add expense"),
+      );
       return;
     }
-    setEntries((prev) => [json, ...prev]);
-    setExpense((s) => ({ ...s, amount: "", description: "" }));
+    if (editExpenseId) {
+      setEntries((prev) =>
+        prev.map((row) => (row.id === editExpenseId ? json : row)),
+      );
+    } else {
+      setEntries((prev) => [json, ...prev]);
+    }
+    resetExpenseForm();
   }
 
   function resetPurchaseForm() {
@@ -343,10 +454,21 @@ export default function ExpensesPage() {
       />
 
       <div className="mb-10 grid gap-8 lg:grid-cols-2">
-        <form onSubmit={onAddExpense} className="space-y-3 border border-border glass-panel p-4">
+        <form onSubmit={onSaveExpense} className="space-y-3 border border-border glass-panel p-4">
           <h2 className="text-sm uppercase tracking-wide text-neon-orange">
-            Add expense
+            {editExpenseId ? "Edit expense" : "Add expense"}
           </h2>
+          <label className="block space-y-1">
+            <span className="text-sm text-muted">Description</span>
+            <input
+              className={INPUT_CLASS}
+              value={expense.description}
+              onChange={(e) =>
+                setExpense({ ...expense, description: e.target.value })
+              }
+              required
+            />
+          </label>
           <label className="block space-y-1">
             <span className="text-sm text-muted">Amount (BRL)</span>
             <input
@@ -355,6 +477,7 @@ export default function ExpensesPage() {
               onChange={(e) => setExpense({ ...expense, amount: e.target.value })}
               required
               inputMode="decimal"
+              placeholder="0,00"
             />
           </label>
           <label className="block space-y-1">
@@ -375,13 +498,17 @@ export default function ExpensesPage() {
               onChange={(e) =>
                 setExpense({
                   ...expense,
-                  method: e.target.value as (typeof METHODS)[number],
+                  method: e.target
+                    .value as (typeof SELECTABLE_PAYMENT_METHODS)[number],
                 })
               }
             >
-              {METHODS.map((m) => (
+              {paymentMethodSelectOptions(
+                SELECTABLE_PAYMENT_METHODS,
+                expense.method,
+              ).map((m) => (
                 <option key={m} value={m}>
-                  {m}
+                  {paymentMethodLabel(m)}
                 </option>
               ))}
             </select>
@@ -420,17 +547,20 @@ export default function ExpensesPage() {
               ))}
             </select>
           </label>
-          <label className="block space-y-1">
-            <span className="text-sm text-muted">Description</span>
-            <input
-              className={INPUT_CLASS}
-              value={expense.description}
-              onChange={(e) => setExpense({ ...expense, description: e.target.value })}
-            />
-          </label>
-          <button type="submit" className={BTN_PRIMARY_CLASS}>
-            Add expense
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <button type="submit" className={BTN_PRIMARY_CLASS}>
+              {editExpenseId ? "Update expense" : "Add expense"}
+            </button>
+            {editExpenseId ? (
+              <button
+                type="button"
+                className={BTN_LINK_CLASS}
+                onClick={resetExpenseForm}
+              >
+                Cancel edit
+              </button>
+            ) : null}
+          </div>
         </form>
 
         <form onSubmit={onSavePurchase} className="space-y-3 border border-border glass-panel p-4">
@@ -562,80 +692,115 @@ export default function ExpensesPage() {
               <table className={TABLE_CLASS}>
                 <thead>
                   <tr>
-                    <th className={TH_CLASS}>Date</th>
-                    <th className={TH_CLASS}>Description</th>
-                    <th className={TH_CLASS}>Category</th>
-                    <th className={TH_CLASS}>Card</th>
-                    <th className={TH_CLASS}>Parcels</th>
-                    <th className={`${TH_CLASS} text-right`}>Total</th>
+                    <SortableTh
+                      label="Date"
+                      column="date"
+                      sortKey={purchaseSortKey}
+                      sortDir={purchaseSortDir}
+                      onSort={togglePurchaseSort}
+                    />
+                    <SortableTh
+                      label="Description"
+                      column="description"
+                      sortKey={purchaseSortKey}
+                      sortDir={purchaseSortDir}
+                      onSort={togglePurchaseSort}
+                    />
+                    <SortableTh
+                      label="Category"
+                      column="category"
+                      sortKey={purchaseSortKey}
+                      sortDir={purchaseSortDir}
+                      onSort={togglePurchaseSort}
+                    />
+                    <SortableTh
+                      label="Card"
+                      column="card"
+                      sortKey={purchaseSortKey}
+                      sortDir={purchaseSortDir}
+                      onSort={togglePurchaseSort}
+                    />
+                    <SortableTh
+                      label="Parcels"
+                      column="parcels"
+                      sortKey={purchaseSortKey}
+                      sortDir={purchaseSortDir}
+                      onSort={togglePurchaseSort}
+                    />
+                    <SortableTh
+                      label="Total"
+                      column="total"
+                      sortKey={purchaseSortKey}
+                      sortDir={purchaseSortDir}
+                      onSort={togglePurchaseSort}
+                      align="right"
+                    />
                     <th className={`${TH_CLASS} text-right`}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {[...purchaseRows]
-                    .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))
-                    .map((row) => {
-                      const category = row.categoryId
-                        ? categoryById.get(row.categoryId)
-                        : undefined;
-                      const card = cardById.get(row.creditCardId);
-                      const first = row.installments[0];
-                      const parcelLabel =
-                        row.installmentCount > 1
-                          ? `${row.installmentCount}× ${formatBrl(first?.amountCents ?? 0)}`
-                          : "1×";
-                      return (
-                        <tr key={row.id}>
-                          <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
-                            {row.purchaseDate}
-                          </td>
-                          <td className={TD_CLASS}>{row.merchant}</td>
-                          <td className={TD_CLASS}>
-                            {category ? (
-                              <CategoryPill
-                                name={category.name}
-                                color={category.color}
-                              />
-                            ) : (
-                              <span className="text-muted">—</span>
-                            )}
-                          </td>
-                          <td className={`${TD_CLASS} text-muted`}>
-                            {card?.label ?? "—"}
-                          </td>
-                          <td className={`${TD_CLASS} text-muted`}>{parcelLabel}</td>
-                          <td
-                            className={`${TD_CLASS} text-right tabular-nums text-neon-orange`}
-                          >
-                            {formatBrl(row.totalCents)}
-                          </td>
-                          <td className={`${TD_CLASS} text-right`}>
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                className={BTN_LINK_CLASS}
-                                onClick={() => startEditPurchase(row)}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                className={BTN_DANGER_CLASS}
-                                onClick={() =>
-                                  confirmDeletePurchase.requestDelete(
-                                    row,
-                                    "Delete card purchase",
-                                    `${row.merchant} · ${row.purchaseDate} · ${formatBrl(row.totalCents)}`,
-                                  )
-                                }
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                  {sortedPurchases.map((row) => {
+                    const category = row.categoryId
+                      ? categoryById.get(row.categoryId)
+                      : undefined;
+                    const card = cardById.get(row.creditCardId);
+                    const first = row.installments[0];
+                    const parcelLabel =
+                      row.installmentCount > 1
+                        ? `${row.installmentCount}× ${formatBrl(first?.amountCents ?? 0)}`
+                        : "1×";
+                    return (
+                      <tr key={row.id}>
+                        <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
+                          {row.purchaseDate}
+                        </td>
+                        <td className={TD_CLASS}>{row.merchant}</td>
+                        <td className={TD_CLASS}>
+                          {category ? (
+                            <CategoryPill
+                              name={category.name}
+                              color={category.color}
+                            />
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                        <td className={`${TD_CLASS} text-muted`}>
+                          {card?.label ?? "—"}
+                        </td>
+                        <td className={`${TD_CLASS} text-muted`}>{parcelLabel}</td>
+                        <td
+                          className={`${TD_CLASS} text-right tabular-nums text-neon-orange`}
+                        >
+                          {formatBrl(row.totalCents)}
+                        </td>
+                        <td className={`${TD_CLASS} text-right`}>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className={BTN_LINK_CLASS}
+                              onClick={() => startEditPurchase(row)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className={BTN_DANGER_CLASS}
+                              onClick={() =>
+                                confirmDeletePurchase.requestDelete(
+                                  row,
+                                  "Delete card purchase",
+                                  `${row.merchant} · ${row.purchaseDate} · ${formatBrl(row.totalCents)}`,
+                                )
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -652,14 +817,14 @@ export default function ExpensesPage() {
                 <thead>
                   <tr>
                     <SortableTh
-                      label="Day"
-                      column="day"
+                      label="Date"
+                      column="date"
                       sortKey={sortKey}
                       sortDir={sortDir}
                       onSort={toggle}
                     />
                     <SortableTh
-                      label="Name"
+                      label="Description"
                       column="name"
                       sortKey={sortKey}
                       sortDir={sortDir}
@@ -675,13 +840,6 @@ export default function ExpensesPage() {
                     <SortableTh
                       label="Method"
                       column="method"
-                      sortKey={sortKey}
-                      sortDir={sortDir}
-                      onSort={toggle}
-                    />
-                    <SortableTh
-                      label="Status"
-                      column="status"
                       sortKey={sortKey}
                       sortDir={sortDir}
                       onSort={toggle}
@@ -718,15 +876,8 @@ export default function ExpensesPage() {
                             <span className="text-muted">—</span>
                           )}
                         </td>
-                        <td className={`${TD_CLASS} uppercase text-muted`}>
-                          {row.method}
-                        </td>
-                        <td className={TD_CLASS}>
-                          {row.status !== "confirmed" ? (
-                            <span className="text-neon-orange">{row.status}</span>
-                          ) : (
-                            <span className="text-muted">confirmed</span>
-                          )}
+                        <td className={`${TD_CLASS} text-muted`}>
+                          {methodLabel(row)}
                         </td>
                         <td
                           className={`${TD_CLASS} text-right tabular-nums text-neon-orange`}
@@ -734,19 +885,28 @@ export default function ExpensesPage() {
                           {formatBrl(row.amountCents)}
                         </td>
                         <td className={`${TD_CLASS} text-right`}>
-                          <button
-                            type="button"
-                            className={BTN_DANGER_CLASS}
-                            onClick={() =>
-                              confirmDelete.requestDelete(
-                                row,
-                                "Delete expense",
-                                `${row.description || row.method} · ${row.occursOn} · ${formatBrl(row.amountCents)}`,
-                              )
-                            }
-                          >
-                            Delete
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              className={BTN_LINK_CLASS}
+                              onClick={() => startEditExpense(row)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className={BTN_DANGER_CLASS}
+                              onClick={() =>
+                                confirmDelete.requestDelete(
+                                  row,
+                                  "Delete expense",
+                                  `${row.description || row.method} · ${row.occursOn} · ${formatBrl(row.amountCents)}`,
+                                )
+                              }
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

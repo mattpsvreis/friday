@@ -8,6 +8,11 @@ import { PageHeading } from "@/components/page-heading";
 import { SortableTh } from "@/components/sortable-th";
 import { StatusPill } from "@/components/status-pill";
 import { formatBrl, parseBrlInput } from "@/lib/money";
+import {
+  paymentMethodLabel,
+  paymentMethodSelectOptions,
+  SELECTABLE_PAYMENT_METHODS,
+} from "@/lib/payment-methods";
 import { apiFetch } from "@/lib/session-client";
 import {
   BTN_DANGER_CLASS,
@@ -116,7 +121,11 @@ export default function RecurringPage() {
         case "day":
           return cmpNumber(a.dayOfMonth, b.dayOfMonth, dir);
         case "method":
-          return cmpText(a.method, b.method, dir);
+          return cmpText(
+            paymentMethodLabel(a.method),
+            paymentMethodLabel(b.method),
+            dir,
+          );
         case "amount":
           return cmpNumber(a.amountCents, b.amountCents, dir);
         case "status":
@@ -356,12 +365,14 @@ export default function RecurringPage() {
             value={form.method}
             onChange={(e) => setForm({ ...form, method: e.target.value })}
           >
-            <option value="pix">pix</option>
-            <option value="cash">cash</option>
-            <option value="credit_card">credit_card</option>
-            <option value="transfer">transfer</option>
-            <option value="card_payment">card_payment</option>
-            <option value="other">other</option>
+            {paymentMethodSelectOptions(
+              SELECTABLE_PAYMENT_METHODS,
+              form.method,
+            ).map((m) => (
+              <option key={m} value={m}>
+                {paymentMethodLabel(m)}
+              </option>
+            ))}
           </select>
         </label>
         <label className="space-y-1">
@@ -560,7 +571,9 @@ export default function RecurringPage() {
                   <td className={`${TD_CLASS} tabular-nums text-muted`}>
                     {rule.dayOfMonth}
                   </td>
-                  <td className={`${TD_CLASS} uppercase text-muted`}>{rule.method}</td>
+                  <td className={`${TD_CLASS} text-muted`}>
+                    {paymentMethodLabel(rule.method)}
+                  </td>
                   <td
                     className={[
                       TD_CLASS,

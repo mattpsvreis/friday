@@ -89,15 +89,18 @@ export function paymentDueForCycle(
 }
 
 /**
- * Month where a fatura payment counts as an expense for paycheck planning.
- * Due dates are paid at the start of that month, so they are budgeted in the
- * prior calendar month (Nov due → October expense math).
+ * Month where a fatura cycle counts as an expense for paycheck planning.
+ * Cycles cut on the card's close day (e.g. the 4th); that bill is budgeted in
+ * the prior calendar month (close Nov 4 → October expense math).
+ *
+ * Example: purchase on Oct 2 → parcel 1 closes Oct 4 (September budget);
+ * viewing October shows parcel 2 (closes Nov 4).
  */
-export function faturaExpenseAttributionDate(paymentDue: Date): Date {
+export function faturaExpenseAttributionDate(cycleClose: Date): Date {
   return dateWithDay(
-    paymentDue.getUTCFullYear(),
-    paymentDue.getUTCMonth() - 1,
-    paymentDue.getUTCDate(),
+    cycleClose.getUTCFullYear(),
+    cycleClose.getUTCMonth() - 1,
+    cycleClose.getUTCDate(),
   );
 }
 

@@ -7,6 +7,7 @@ import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
 import { SortableTh } from "@/components/sortable-th";
 import { formatBrl } from "@/lib/money";
+import { paymentMethodLabel } from "@/lib/payment-methods";
 import { apiFetch } from "@/lib/session-client";
 import {
   BTN_DANGER_CLASS,
@@ -129,7 +130,11 @@ export default function TransactionsPage() {
             dir,
           );
         case "method":
-          return cmpText(a.method, b.method, dir);
+          return cmpText(
+            paymentMethodLabel(a.method),
+            paymentMethodLabel(b.method),
+            dir,
+          );
         case "amount":
           return cmpNumber(a.amountCents, b.amountCents, dir);
         default:
@@ -277,8 +282,8 @@ export default function TransactionsPage() {
                   row.kind === "purchase"
                     ? cardById.get(
                         (row.source as PurchaseRow).creditCardId,
-                      )?.label ?? "credit_card"
-                    : row.method;
+                      )?.label ?? paymentMethodLabel("credit_card")
+                    : paymentMethodLabel(row.method);
                 return (
                   <tr key={row.key}>
                     <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
@@ -295,7 +300,7 @@ export default function TransactionsPage() {
                         <span className="text-muted">—</span>
                       )}
                     </td>
-                    <td className={`${TD_CLASS} uppercase text-muted`}>
+                    <td className={`${TD_CLASS} text-muted`}>
                       {methodLabel}
                     </td>
                     <td className={`${TD_CLASS} capitalize text-muted`}>

@@ -6,6 +6,11 @@ import { ConfirmDeleteModal } from "@/components/confirm-delete-modal";
 import { PageHeading } from "@/components/page-heading";
 import { SortableTh } from "@/components/sortable-th";
 import { formatBrl, parseBrlInput } from "@/lib/money";
+import {
+  paymentMethodLabel,
+  paymentMethodSelectOptions,
+  SELECTABLE_INCOME_METHODS,
+} from "@/lib/payment-methods";
 import { apiFetch } from "@/lib/session-client";
 import {
   BTN_DANGER_CLASS,
@@ -92,7 +97,11 @@ export default function IncomePage() {
         case "day":
           return cmpText(a.occursOn, b.occursOn, dir);
         case "method":
-          return cmpText(a.method, b.method, dir);
+          return cmpText(
+            paymentMethodLabel(a.method),
+            paymentMethodLabel(b.method),
+            dir,
+          );
         case "amount":
           return cmpNumber(a.amountCents, b.amountCents, dir);
         case "status":
@@ -207,10 +216,14 @@ export default function IncomePage() {
             value={form.method}
             onChange={(e) => setForm({ ...form, method: e.target.value })}
           >
-            <option value="pix">pix</option>
-            <option value="transfer">transfer</option>
-            <option value="cash">cash</option>
-            <option value="other">other</option>
+            {paymentMethodSelectOptions(
+              SELECTABLE_INCOME_METHODS,
+              form.method,
+            ).map((m) => (
+              <option key={m} value={m}>
+                {paymentMethodLabel(m)}
+              </option>
+            ))}
           </select>
         </label>
         <label className="block space-y-1">
@@ -316,7 +329,9 @@ export default function IncomePage() {
                       <span className="text-muted">—</span>
                     )}
                   </td>
-                  <td className={`${TD_CLASS} uppercase text-muted`}>{row.method}</td>
+                  <td className={`${TD_CLASS} text-muted`}>
+                    {paymentMethodLabel(row.method)}
+                  </td>
                   <td className={TD_CLASS}>
                     {row.status !== "confirmed" ? (
                       <span className="text-neon-orange">{row.status}</span>
