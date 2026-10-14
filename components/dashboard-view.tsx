@@ -224,7 +224,7 @@ export function DashboardView() {
                 cents={data.predicted.recurringCashCents}
               />
               <SplitRow
-                label="Installments (card)"
+                label="Card bill due (month)"
                 cents={data.predicted.installmentsCents}
               />
             </div>

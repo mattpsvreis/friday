@@ -38,10 +38,11 @@
 - `predicted.oneTimeCashCents` — confirmed ledger cash expenses in the month (excl. card methods)
 - `predicted.recurringCashCents` — sum of enabled recurring expense rules (excl. card methods)
 - `incomesCents` — confirmed ledger income in the month + enabled recurring income rules
-- `predicted.installmentsCents` — confirmed installments whose payment due falls in window
-- `faturaPaymentsDueCents` — same installment dues (cash leaving for card bills)
-- Card `usedCents` — remaining confirmed installments from open cycle forward
+- `predicted.installmentsCents` — confirmed installments **plus** enabled credit-card recurrings whose payment due falls in the window
+- `faturaPaymentsDueCents` — same card bill dues (cash leaving for fatura payments)
+- Card `usedCents` — remaining confirmed installments from open cycle forward **plus** credit-card recurrings on the open fatura
 - Auto-generated ledger rows from the old materialization model are purged on dashboard load
+- Expenses page: cash ledger (`ledger_entries`) and card purchases (`purchases` + `installments`) are separate lists
 
 ## Nav routes
 

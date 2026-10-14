@@ -20,7 +20,7 @@ Single-user BRL personal finance app on Next.js + Postgres.
 - **Expected cash:** `spendable + incomes_in_window − cash_expenses_in_window − fatura_payments_due_in_window`.
 - **Dashboard window:** Full calendar month (1st → last day). User picks the viewed month on the Dashboard (not a settings “month end day”).
 - **Cash vs card:** PIX/cash/other hit cash on `occurs_on`. Card purchases hit limit/cycle; cash drops on payment due day for that cycle’s installments.
-- **Recurring:** Templates only (ON/OFF). Never create ledger rows. Dashboard sums enabled rules into income / recurring cash spend for the viewed month.
+- **Recurring:** Templates only (ON/OFF). Never create ledger rows. Cash recurrings sum into income / recurring cash spend. Credit-card recurrings hit card limit (open fatura) and card bill due for the viewed month.
 - **Categories:** User-defined labels with a `#RRGGBB` color.
 - **Auth:** One password (argon2). Session token in `sessionStorage` (`friday_session`). Closing the browser forces unlock again.
 - **Import:** Itaú PDF extrato/fatura bootstrap; mass insert as `unconfirmed`; review fixes noise.

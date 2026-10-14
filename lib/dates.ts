@@ -48,6 +48,17 @@ export function cycleCloseDateFor(
   return dateWithDay(y, m + 1, cycleCloseDay);
 }
 
+/** Close date of the currently open fatura cycle as of `asOf`. */
+export function openCycleCloseDate(asOf: Date, cycleCloseDay: number): Date {
+  const y = asOf.getUTCFullYear();
+  const m = asOf.getUTCMonth();
+  const d = asOf.getUTCDate();
+  if (d <= cycleCloseDay) {
+    return dateWithDay(y, m, cycleCloseDay);
+  }
+  return dateWithDay(y, m + 1, cycleCloseDay);
+}
+
 export function shiftCycleClose(close: Date, deltaMonths: number): Date {
   const day = close.getUTCDate();
   return dateWithDay(

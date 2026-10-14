@@ -10,6 +10,7 @@ import {
 import {
   calendarMonthWindow,
   inInclusiveRange,
+  openCycleCloseDate,
   parseIsoDate,
   paymentDueForCycle,
   toIsoDate,
@@ -17,6 +18,8 @@ import {
 import {
   listEnabledRules,
   purgeAutoMaterializedLedger,
+  sumRecurringCardOnOpenFatura,
+  sumRecurringCardPaymentsDueInWindow,
   sumRecurringCashExpenses,
   sumRules,
 } from "@/lib/recurring";
@@ -81,6 +84,8 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
   const incomes = ledgerIncomes + recurringIncome;
 
   const cards = await db.select().from(creditCards);
+  const cardsById = new Map(cards.map((card) => [card.id, card]));
+
   const confirmedPurchases = await db
     .select()
     .from(purchases)
@@ -114,6 +119,15 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     }
   }
 
+  const recurringCardDue = sumRecurringCardPaymentsDueInWindow(
+    enabledRules,
+    cardsById,
+    start,
+    end,
+  );
+  installmentPaymentsDue += recurringCardDue;
+  faturaPaymentsDue += recurringCardDue;
+
   // Manual / imported ledger cash expenses only (recurring comes from rules).
   const oneTimeCash = confirmedLedger
     .filter(
@@ -130,25 +144,23 @@ export async function getDashboardData(view: DashboardMonth, now = new Date()) {
     spendable + incomes - oneTimeCash - recurringCash - faturaPaymentsDue;
 
   const cardStats = cards.map((card) => {
-    const remaining = confirmedInstallments
+    const openClose = openCycleCloseDate(asOf, card.cycleCloseDay);
+    const remainingInstallments = confirmedInstallments
       .filter((row) => {
         const purchase = confirmedPurchases.find((p) => p.id === row.purchaseId);
         if (!purchase || purchase.creditCardId !== card.id) return false;
         const close = parseIsoDate(row.cycleCloseDate);
-        const openClose = (() => {
-          const y = asOf.getUTCFullYear();
-          const m = asOf.getUTCMonth();
-          const d = asOf.getUTCDate();
-          if (d <= card.cycleCloseDay) {
-            return new Date(Date.UTC(y, m, card.cycleCloseDay));
-          }
-          return new Date(Date.UTC(y, m + 1, card.cycleCloseDay));
-        })();
         return close.getTime() >= openClose.getTime();
       })
       .reduce((sum, row) => sum + row.amountCents, 0);
 
-    const used = remaining;
+    const recurringOnLimit = sumRecurringCardOnOpenFatura(
+      enabledRules,
+      card,
+      asOf,
+    );
+
+    const used = remainingInstallments + recurringOnLimit;
     return {
       id: card.id,
       label: card.label,

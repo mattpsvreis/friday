@@ -49,6 +49,24 @@ type LedgerEntry = {
 type Category = { id: string; name: string; kind: string; color: string };
 type Card = { id: string; label: string };
 
+type PurchaseRow = {
+  id: string;
+  creditCardId: string;
+  categoryId: string | null;
+  merchant: string;
+  purchaseDate: string;
+  totalCents: number;
+  installmentCount: number;
+  status: string;
+  installments: {
+    id: string;
+    number: number;
+    ofTotal: number;
+    amountCents: number;
+    cycleCloseDate: string;
+  }[];
+};
+
 const METHODS = [
   "pix",
   "cash",
@@ -61,7 +79,9 @@ const METHODS = [
 export default function ExpensesPage() {
   const today = useTodayIso();
   const confirmDelete = useConfirmDelete<LedgerEntry>();
+  const confirmDeletePurchase = useConfirmDelete<PurchaseRow>();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [purchaseRows, setPurchaseRows] = useState<PurchaseRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -155,25 +175,42 @@ export default function ExpensesPage() {
     );
   }, [today]);
 
+  const cardById = useMemo(() => {
+    const map = new Map<string, Card>();
+    for (const c of cards) map.set(c.id, c);
+    return map;
+  }, [cards]);
+
   function refreshLedger() {
     return Promise.all([
       apiFetch("/api/ledger?direction=expense"),
+      apiFetch("/api/purchases"),
       apiFetch("/api/categories"),
       apiFetch("/api/cards"),
     ])
-      .then(async ([ledgerRes, catRes, cardRes]) => {
+      .then(async ([ledgerRes, purchaseRes, catRes, cardRes]) => {
         const ledgerJson = (await ledgerRes.json()) as LedgerEntry[] | { error?: string };
+        const purchaseJson = (await purchaseRes.json()) as
+          | PurchaseRow[]
+          | { error?: string };
         const catJson = (await catRes.json()) as Category[];
         const cardJson = (await cardRes.json()) as Card[];
         if (!ledgerRes.ok) {
           setError((ledgerJson as { error?: string }).error ?? "Failed to load ledger");
           return;
         }
+        if (!purchaseRes.ok) {
+          setError(
+            (purchaseJson as { error?: string }).error ?? "Failed to load purchases",
+          );
+          return;
+        }
         setEntries(ledgerJson as LedgerEntry[]);
+        setPurchaseRows(purchaseJson as PurchaseRow[]);
         setCategories(catJson);
         setCards(cardJson);
       })
-      .catch(() => setError("Failed to load ledger"));
+      .catch(() => setError("Failed to load expenses"));
   }
 
   useEffect(() => {
@@ -192,6 +229,20 @@ export default function ExpensesPage() {
       throw new Error(json.error ?? "Delete failed");
     }
     setEntries((prev) => prev.filter((row) => row.id !== entry.id));
+  }
+
+  async function deletePurchase(row: PurchaseRow) {
+    setError(null);
+    const res = await apiFetch(
+      `/api/purchases?id=${encodeURIComponent(row.id)}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) {
+      const json = (await res.json()) as { error?: string };
+      setError(json.error ?? "Delete failed");
+      throw new Error(json.error ?? "Delete failed");
+    }
+    setPurchaseRows((prev) => prev.filter((p) => p.id !== row.id));
   }
 
   async function onAddExpense(e: FormEvent) {
@@ -468,112 +519,205 @@ export default function ExpensesPage() {
 
       {error ? <p className="mb-4 text-sm text-neon-orange">{error}</p> : null}
 
-      <h2 className="mb-3 text-sm uppercase tracking-wide text-muted">Ledger</h2>
       {loading ? (
         <p className="text-muted">Loading…</p>
-      ) : entries.length === 0 ? (
-        <p className="text-muted">No expenses recorded.</p>
       ) : (
-        <div className={TABLE_WRAP_CLASS}>
-          <table className={TABLE_CLASS}>
-            <thead>
-              <tr>
-                <SortableTh
-                  label="Day"
-                  column="day"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onSort={toggle}
-                />
-                <SortableTh
-                  label="Name"
-                  column="name"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onSort={toggle}
-                />
-                <SortableTh
-                  label="Category"
-                  column="category"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onSort={toggle}
-                />
-                <SortableTh
-                  label="Method"
-                  column="method"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onSort={toggle}
-                />
-                <SortableTh
-                  label="Status"
-                  column="status"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onSort={toggle}
-                />
-                <SortableTh
-                  label="Amount"
-                  column="amount"
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onSort={toggle}
-                  align="right"
-                />
-                <th className={`${TH_CLASS} text-right`}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedEntries.map((row) => {
-                const category = row.categoryId
-                  ? categoryById.get(row.categoryId)
-                  : undefined;
-                return (
-                <tr key={row.id}>
-                  <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
-                    {row.occursOn}
-                  </td>
-                  <td className={TD_CLASS}>{row.description || "—"}</td>
-                  <td className={TD_CLASS}>
-                    {category ? (
-                      <CategoryPill name={category.name} color={category.color} />
-                    ) : (
-                      <span className="text-muted">—</span>
-                    )}
-                  </td>
-                  <td className={`${TD_CLASS} uppercase text-muted`}>{row.method}</td>
-                  <td className={TD_CLASS}>
-                    {row.status !== "confirmed" ? (
-                      <span className="text-neon-orange">{row.status}</span>
-                    ) : (
-                      <span className="text-muted">confirmed</span>
-                    )}
-                  </td>
-                  <td className={`${TD_CLASS} text-right tabular-nums text-neon-orange`}>
-                    {formatBrl(row.amountCents)}
-                  </td>
-                  <td className={`${TD_CLASS} text-right`}>
-                    <button
-                      type="button"
-                      className={BTN_DANGER_CLASS}
-                      onClick={() =>
-                        confirmDelete.requestDelete(
-                          row,
-                          "Delete expense",
-                          `${row.description || row.method} · ${row.occursOn} · ${formatBrl(row.amountCents)}`,
-                        )
-                      }
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <h2 className="mb-3 text-sm uppercase tracking-wide text-muted">
+            Card purchases
+          </h2>
+          {purchaseRows.length === 0 ? (
+            <p className="mb-8 text-muted">No card purchases yet.</p>
+          ) : (
+            <div className={`${TABLE_WRAP_CLASS} mb-10`}>
+              <table className={TABLE_CLASS}>
+                <thead>
+                  <tr>
+                    <th className={TH_CLASS}>Date</th>
+                    <th className={TH_CLASS}>Description</th>
+                    <th className={TH_CLASS}>Category</th>
+                    <th className={TH_CLASS}>Card</th>
+                    <th className={TH_CLASS}>Parcels</th>
+                    <th className={`${TH_CLASS} text-right`}>Total</th>
+                    <th className={`${TH_CLASS} text-right`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...purchaseRows]
+                    .sort((a, b) => b.purchaseDate.localeCompare(a.purchaseDate))
+                    .map((row) => {
+                      const category = row.categoryId
+                        ? categoryById.get(row.categoryId)
+                        : undefined;
+                      const card = cardById.get(row.creditCardId);
+                      const first = row.installments[0];
+                      const parcelLabel =
+                        row.installmentCount > 1
+                          ? `${row.installmentCount}× ${formatBrl(first?.amountCents ?? 0)}`
+                          : "1×";
+                      return (
+                        <tr key={row.id}>
+                          <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
+                            {row.purchaseDate}
+                          </td>
+                          <td className={TD_CLASS}>{row.merchant}</td>
+                          <td className={TD_CLASS}>
+                            {category ? (
+                              <CategoryPill
+                                name={category.name}
+                                color={category.color}
+                              />
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
+                          <td className={`${TD_CLASS} text-muted`}>
+                            {card?.label ?? "—"}
+                          </td>
+                          <td className={`${TD_CLASS} text-muted`}>{parcelLabel}</td>
+                          <td
+                            className={`${TD_CLASS} text-right tabular-nums text-neon-orange`}
+                          >
+                            {formatBrl(row.totalCents)}
+                          </td>
+                          <td className={`${TD_CLASS} text-right`}>
+                            <button
+                              type="button"
+                              className={BTN_DANGER_CLASS}
+                              onClick={() =>
+                                confirmDeletePurchase.requestDelete(
+                                  row,
+                                  "Delete card purchase",
+                                  `${row.merchant} · ${row.purchaseDate} · ${formatBrl(row.totalCents)}`,
+                                )
+                              }
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <h2 className="mb-3 text-sm uppercase tracking-wide text-muted">
+            Cash ledger
+          </h2>
+          {entries.length === 0 ? (
+            <p className="text-muted">No cash expenses recorded.</p>
+          ) : (
+            <div className={TABLE_WRAP_CLASS}>
+              <table className={TABLE_CLASS}>
+                <thead>
+                  <tr>
+                    <SortableTh
+                      label="Day"
+                      column="day"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggle}
+                    />
+                    <SortableTh
+                      label="Name"
+                      column="name"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggle}
+                    />
+                    <SortableTh
+                      label="Category"
+                      column="category"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggle}
+                    />
+                    <SortableTh
+                      label="Method"
+                      column="method"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggle}
+                    />
+                    <SortableTh
+                      label="Status"
+                      column="status"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggle}
+                    />
+                    <SortableTh
+                      label="Amount"
+                      column="amount"
+                      sortKey={sortKey}
+                      sortDir={sortDir}
+                      onSort={toggle}
+                      align="right"
+                    />
+                    <th className={`${TH_CLASS} text-right`}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedEntries.map((row) => {
+                    const category = row.categoryId
+                      ? categoryById.get(row.categoryId)
+                      : undefined;
+                    return (
+                      <tr key={row.id}>
+                        <td className={`${TD_CLASS} whitespace-nowrap text-muted`}>
+                          {row.occursOn}
+                        </td>
+                        <td className={TD_CLASS}>{row.description || "—"}</td>
+                        <td className={TD_CLASS}>
+                          {category ? (
+                            <CategoryPill
+                              name={category.name}
+                              color={category.color}
+                            />
+                          ) : (
+                            <span className="text-muted">—</span>
+                          )}
+                        </td>
+                        <td className={`${TD_CLASS} uppercase text-muted`}>
+                          {row.method}
+                        </td>
+                        <td className={TD_CLASS}>
+                          {row.status !== "confirmed" ? (
+                            <span className="text-neon-orange">{row.status}</span>
+                          ) : (
+                            <span className="text-muted">confirmed</span>
+                          )}
+                        </td>
+                        <td
+                          className={`${TD_CLASS} text-right tabular-nums text-neon-orange`}
+                        >
+                          {formatBrl(row.amountCents)}
+                        </td>
+                        <td className={`${TD_CLASS} text-right`}>
+                          <button
+                            type="button"
+                            className={BTN_DANGER_CLASS}
+                            onClick={() =>
+                              confirmDelete.requestDelete(
+                                row,
+                                "Delete expense",
+                                `${row.description || row.method} · ${row.occursOn} · ${formatBrl(row.amountCents)}`,
+                              )
+                            }
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
       <ConfirmDeleteModal
@@ -585,6 +729,16 @@ export default function ExpensesPage() {
         onCancel={confirmDelete.cancel}
         onContinue={confirmDelete.continueToStep2}
         onConfirm={() => void confirmDelete.runConfirm(deleteLedgerEntry)}
+      />
+      <ConfirmDeleteModal
+        open={confirmDeletePurchase.open}
+        title={confirmDeletePurchase.pending?.title ?? "Delete"}
+        description={confirmDeletePurchase.pending?.description}
+        step={confirmDeletePurchase.step}
+        busy={confirmDeletePurchase.busy}
+        onCancel={confirmDeletePurchase.cancel}
+        onContinue={confirmDeletePurchase.continueToStep2}
+        onConfirm={() => void confirmDeletePurchase.runConfirm(deletePurchase)}
       />
     </div>
   );

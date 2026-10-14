@@ -1,6 +1,23 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { ledgerEntries, recurringRules } from "@/db/schema";
+import {
+  clampDay,
+  cycleCloseDateFor,
+  dateWithDay,
+  inInclusiveRange,
+  openCycleCloseDate,
+  paymentDueForCycle,
+  shiftYearMonth,
+} from "@/lib/dates";
+
+export type RecurringRuleRow = {
+  direction: "income" | "expense";
+  method: string;
+  amountCents: number;
+  dayOfMonth: number;
+  creditCardId: string | null;
+};
 
 /** Recurring rules are templates only — they never create ledger rows. */
 export async function listEnabledRules() {
@@ -41,4 +58,88 @@ export function sumRecurringCashExpenses(
         rule.method !== "card_payment",
     )
     .reduce((sum, rule) => sum + rule.amountCents, 0);
+}
+
+function isCardRecurringExpense(rule: RecurringRuleRow) {
+  return (
+    rule.direction === "expense" &&
+    rule.method === "credit_card" &&
+    Boolean(rule.creditCardId)
+  );
+}
+
+function chargeDateInMonth(
+  year: number,
+  monthIndex: number,
+  dayOfMonth: number,
+): Date {
+  return dateWithDay(year, monthIndex, clampDay(year, monthIndex, dayOfMonth));
+}
+
+/**
+ * Card recurrings whose fatura payment due falls in [start, end].
+ * Checks charges in the viewed month and the prior month (close/due lag).
+ */
+export function sumRecurringCardPaymentsDueInWindow(
+  rules: RecurringRuleRow[],
+  cardsById: Map<string, { cycleCloseDay: number; paymentDueDay: number }>,
+  start: Date,
+  end: Date,
+  creditCardId?: string,
+) {
+  let total = 0;
+  const viewYear = start.getUTCFullYear();
+  const viewMonth = start.getUTCMonth();
+
+  for (const rule of rules) {
+    if (!isCardRecurringExpense(rule)) continue;
+    if (creditCardId && rule.creditCardId !== creditCardId) continue;
+    const card = cardsById.get(rule.creditCardId!);
+    if (!card) continue;
+
+    for (const delta of [0, -1]) {
+      const { year, monthIndex } = shiftYearMonth(viewYear, viewMonth, delta);
+      const charge = chargeDateInMonth(year, monthIndex, rule.dayOfMonth);
+      const close = cycleCloseDateFor(charge, card.cycleCloseDay);
+      const due = paymentDueForCycle(close, card.paymentDueDay);
+      if (inInclusiveRange(due, start, end)) {
+        total += rule.amountCents;
+        break;
+      }
+    }
+  }
+
+  return total;
+}
+
+/** Card recurrings sitting on the currently open fatura (count toward limit). */
+export function sumRecurringCardOnOpenFatura(
+  rules: RecurringRuleRow[],
+  card: { id: string; cycleCloseDay: number },
+  asOf: Date,
+) {
+  const openClose = openCycleCloseDate(asOf, card.cycleCloseDay);
+  let total = 0;
+
+  for (const rule of rules) {
+    if (!isCardRecurringExpense(rule)) continue;
+    if (rule.creditCardId !== card.id) continue;
+
+    for (const delta of [0, -1]) {
+      const { year, monthIndex } = shiftYearMonth(
+        asOf.getUTCFullYear(),
+        asOf.getUTCMonth(),
+        delta,
+      );
+      const charge = chargeDateInMonth(year, monthIndex, rule.dayOfMonth);
+      if (charge.getTime() > asOf.getTime()) continue;
+      const close = cycleCloseDateFor(charge, card.cycleCloseDay);
+      if (close.getTime() >= openClose.getTime()) {
+        total += rule.amountCents;
+        break;
+      }
+    }
+  }
+
+  return total;
 }
